@@ -347,6 +347,10 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
     <div class="login-field"><label>Password</label><input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="login-btn" id="loginSubmitBtn" onclick="doLogin()" disabled style="opacity:0.45;cursor:not-allowed">Sign in</button>
     <div class="login-err" id="loginErr">Incorrect username or password.</div>
+    <div style="margin-top:12px;text-align:center">
+      <button onclick="emergencyResetAdmin()" style="background:none;border:none;font-size:9px;color:#888780;cursor:pointer;text-decoration:underline;padding:2px 4px" title="Use only if you cannot log in">Can't log in? Reset admin password</button>
+    </div>
+    <div id="resetAdminMsg" style="font-size:10px;margin-top:6px;text-align:center;display:none"></div>
   </div>
 </div>
 
@@ -1425,6 +1429,31 @@ async function ensureDefaultAdmin(){
   return users;
 }
 
+async function emergencyResetAdmin(){
+  const msgEl=document.getElementById('resetAdminMsg');
+  if(!_gdriveReady && !_credentialsFromFile){
+    if(msgEl){msgEl.textContent='Connect Google Drive first, then try again.';msgEl.style.color='#A32D2D';msgEl.style.display='block';}
+    return;
+  }
+  if(!confirm('Reset the admin account to:\n  Username: admin\n  Password: Admin@1234\n\nThis will overwrite any existing admin credentials. Continue?'))return;
+  if(msgEl){msgEl.textContent='Resetting…';msgEl.style.color='#5F5E5A';msgEl.style.display='block';}
+  try{
+    if(!_defaultAdminHash) _defaultAdminHash=await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
+    const adminUser={username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null};
+    let users=getUsersArray()||[];
+    const idx=users.findIndex(x=>x.username==='admin');
+    if(idx>=0) users[idx]=adminUser; else users.unshift(adminUser);
+    saveUsersArray(users);
+    if(_gdriveReady) await _gdriveSaveFile();
+    if(msgEl){msgEl.textContent='✓ Admin reset. Login with admin / Admin@1234';msgEl.style.color='#085041';msgEl.style.display='block';}
+    document.getElementById('loginUser').value='admin';
+    document.getElementById('loginPass').value='';
+    document.getElementById('loginPass').focus();
+  }catch(e){
+    if(msgEl){msgEl.textContent='Reset failed: '+e.message;msgEl.style.color='#A32D2D';msgEl.style.display='block';}
+  }
+}
+
 // Kept as no-ops for compatibility
 async function _probeForSavedHandle(){ _hasSavedFolderHandle=false; }
 
@@ -1822,6 +1851,13 @@ async function _gdriveInitFile(){
 }
 
 async function _gdriveCreateFile(){
+  // BUG FIX: seed the default admin BEFORE calling getAllData(), otherwise
+  // users:[] gets written to Drive and login always fails on first setup.
+  if(!_defaultAdminHash) _defaultAdminHash = await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
+  const adminUser = {username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null};
+  _lmsUsersOverride = [adminUser];
+  localStorage.setItem('lms7_users', JSON.stringify([adminUser]));
+
   const meta = { name: GDRIVE_FILE_NAME, mimeType:'application/json' };
   const blank = getAllData();
   const body  = JSON.stringify(blank, null, 2);
@@ -1857,8 +1893,12 @@ async function _gdriveLoadFile(){
       const adminUser = {username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null};
       _lmsUsersOverride = [adminUser];
       localStorage.setItem('lms7_users', JSON.stringify([adminUser]));
-      // Save the seeded admin back to the Drive file immediately
-      setTimeout(()=>_gdriveSaveFile(), 500);
+      // Patch data.users so loadDataFromObject below doesn't overwrite the seeded admin
+      data.users = [adminUser];
+      // BUG FIX: await the save so admin hash is persisted before login attempt.
+      // The old setTimeout(500) was a race condition — save could silently fail.
+      _gdriveReady = true;
+      await _gdriveSaveFile();
     }
     loadDataFromObject(data);
     if(document.getElementById('appShell').style.display !== 'none'){
@@ -6979,7 +7019,7 @@ function loadDataFromObject(data){
   if(data.profile)localStorage.setItem('lms7_profile',JSON.stringify(data.profile));
   if(data.limits)localStorage.setItem('lms7_limits',JSON.stringify(data.limits));
   if(data.leaveTypes){localStorage.setItem('lms_leavetypes',JSON.stringify(data.leaveTypes));invalidateLeaveTypesCache();}
-  if(data.users&&Array.isArray(data.users)){_lmsUsersOverride=data.users;localStorage.setItem('lms7_users',JSON.stringify(data.users));}
+  if(data.users&&Array.isArray(data.users)&&data.users.length>0){_lmsUsersOverride=data.users;localStorage.setItem('lms7_users',JSON.stringify(data.users));}
   lNid=leaves.reduce((m,l)=>Math.max(m,l.id),0)+1;
   oNid=overrides.reduce((m,o)=>Math.max(m,o.id),0)+1;
   aNid=actlog.reduce((m,a)=>Math.max(m,a.id),0)+1;

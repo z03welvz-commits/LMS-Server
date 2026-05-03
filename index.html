@@ -1118,9 +1118,9 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
         <div class="form-head">Change password</div>
         <div class="form-body">
           <div class="form-grid">
-            <div class="ff"><label>Current password</label><input type="password" id="sCurPass" placeholder="Current password"></div>
-            <div class="ff"><label>New username</label><input type="text" id="sNewUser" placeholder="New username"></div>
-            <div class="ff"><label>New password</label><input type="password" id="sNewPass" placeholder="New password"></div>
+            <div class="ff"><label>Current password</label><input type="password" id="sCurPass" placeholder="Current password" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')"></div>
+            <div class="ff"><label>New username</label><input type="text" id="sNewUser" placeholder="New username" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')"></div>
+            <div class="ff"><label>New password</label><input type="password" id="sNewPass" placeholder="New password" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')"></div>
           </div>
           <div class="form-actions"><button class="btn btn-primary" onclick="changeCredentials()">Update credentials</button><div id="settingsMsg"></div></div>
         </div>
@@ -2538,6 +2538,7 @@ let _lockPollInterval=null;
 let _dataRefreshInterval=null;
 let _lockCountdownInterval=null;
 let _isLockHolder=false;
+let _isLockLoading=false; // true while takeLock() is in flight — blocks poll from wiping loading UI
 let _lockInfo=null;
 let _lastActivityRenew=0; // timestamp of last activity-triggered renew
 let _missedPollCount=0;   // consecutive failed Drive reads (now wired to threshold)
@@ -2559,6 +2560,7 @@ function stopLockTimers(){
 }
 
 function _setLockLoading(on){
+  _isLockLoading=on;
   const bar=document.getElementById('lockBar');
   const txt=document.getElementById('lockBarText');
   const takeBtn=document.getElementById('lockTakeBtn');
@@ -2594,23 +2596,25 @@ async function takeLock(){
 
   _setLockLoading(true);
 
+  // _fail: restore bar to previous state and show optional alert
+  function _fail(msg){_setLockLoading(false);_updateLockBar(_lockInfo||null);if(msg)alert(msg);}
+
   // Single full-file read — captures lock state + ETag in one round-trip
   let existingData=null, etag='';
   try{
     const r=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`,{headers:{'Cache-Control':'no-cache, no-store'}});
-    if(!r.ok){_setLockLoading(false);alert('Failed to acquire edit lock. Check your connection and try again.');return;}
+    if(!r.ok){_fail('Failed to acquire edit lock. Check your connection and try again.');return;}
     etag=r.headers.get('ETag')||r.headers.get('etag')||'';
     if(etag)_gdriveFileEtag=etag;
     existingData=JSON.parse(await r.text());
     _lastDriveModifiedTime='';
-  }catch(e){_setLockLoading(false);alert('Failed to acquire edit lock. Check your connection and try again.');return;}
+  }catch(e){_fail('Failed to acquire edit lock. Check your connection and try again.');return;}
 
   // Check if someone else holds a valid lock
   const existing=existingData._lock||null;
   if(existing&&existing.lockedBy&&existing.lockedBy!==currentUser){
     if(new Date(existing.expiresAt)>new Date()){
-      _setLockLoading(false);
-      alert('Cannot take edit access — '+(existing.displayName||existing.lockedBy)+' is currently editing.');
+      _fail('Cannot take edit access \u2014 '+(existing.displayName||existing.lockedBy)+' is currently editing.');
       return;
     }
   }
@@ -2624,22 +2628,20 @@ async function takeLock(){
   let pw;
   try{
     pw=await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`,{method:'PATCH',headers:patchHeaders,body:JSON.stringify(existingData,null,2)});
-  }catch(e){_setLockLoading(false);alert('Failed to acquire edit lock. Check your connection and try again.');return;}
+  }catch(e){_fail('Failed to acquire edit lock. Check your connection and try again.');return;}
 
   if(pw.status===412){
-    // ETag mismatch — retry once with fresh read
     let freshData=null,freshEtag='';
     try{
       const freshR=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`,{headers:{'Cache-Control':'no-cache, no-store'}});
-      if(!freshR.ok){_setLockLoading(false);alert('Failed to acquire edit lock. Please try again.');return;}
+      if(!freshR.ok){_fail('Failed to acquire edit lock. Please try again.');return;}
       freshEtag=freshR.headers.get('ETag')||freshR.headers.get('etag')||'';
       if(freshEtag)_gdriveFileEtag=freshEtag;
       freshData=JSON.parse(await freshR.text());
-    }catch(e){_setLockLoading(false);alert('Failed to acquire edit lock. Please try again.');return;}
+    }catch(e){_fail('Failed to acquire edit lock. Please try again.');return;}
     const freshLock=freshData._lock||null;
     if(freshLock&&freshLock.lockedBy&&freshLock.lockedBy!==currentUser&&new Date(freshLock.expiresAt)>new Date()){
-      _setLockLoading(false);
-      alert('Edit access was just taken by '+(freshLock.displayName||freshLock.lockedBy)+'. Please wait.');
+      _fail('Edit access was just taken by '+(freshLock.displayName||freshLock.lockedBy)+'. Please wait.');
       return;
     }
     freshData._lock=lockObj;
@@ -2647,19 +2649,19 @@ async function takeLock(){
     if(freshEtag)retryHeaders['If-Match']=freshEtag;
     let retry;
     try{retry=await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`,{method:'PATCH',headers:retryHeaders,body:JSON.stringify(freshData,null,2)});}
-    catch(e){_setLockLoading(false);alert('Failed to acquire edit lock. Please try again.');return;}
-    if(!retry.ok){_setLockLoading(false);alert('Failed to acquire edit lock. Please try again.');return;}
+    catch(e){_fail('Failed to acquire edit lock. Please try again.');return;}
+    if(!retry.ok){_fail('Failed to acquire edit lock. Please try again.');return;}
     const retryEtag=retry.headers.get('ETag')||retry.headers.get('etag')||'';
     if(retryEtag)_gdriveFileEtag=retryEtag;
   }else if(!pw.ok){
-    _setLockLoading(false);
-    alert('Failed to acquire edit lock. Check your connection and try again.');
+    _fail('Failed to acquire edit lock. Check your connection and try again.');
     return;
   }else{
     const newEtag=pw.headers.get('ETag')||pw.headers.get('etag')||'';
     if(newEtag)_gdriveFileEtag=newEtag;
   }
 
+  // Success
   _setLockLoading(false);
   _lockInfo=lockObj;
   _isLockHolder=true;
@@ -2785,6 +2787,7 @@ function _startCountdown(){
 }
 
 async function _pollLock(){
+  if(_isLockLoading) return; // takeLock() in flight — don't interfere
   if(!_gdriveReady){
     // No Drive — do not auto-grant edit access. The user must click "Take Edit Access"
     // explicitly. Without Drive there is no conflict protection, so we keep the
@@ -2938,6 +2941,7 @@ function _startViewerCountdown(lockObj){
 }
 
 function _updateLockBar(lockObj){
+  if(_isLockLoading) return; // don't wipe loading state mid-flight
   const bar=document.getElementById('lockBar');
   const txt=document.getElementById('lockBarText');
   const takeBtn=document.getElementById('lockTakeBtn');

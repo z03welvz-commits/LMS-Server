@@ -1932,11 +1932,7 @@ function switchSettingsTab(tab,btn){
     _populateDriveFolderInput();
   }
   if(tab==='profile'){
-    const prof=getAdminProfile();
-    const sn=document.getElementById('sNickname');if(sn)sn.value=prof.nickname||'';
-    const sf=document.getElementById('sFullName');if(sf)sf.value=prof.fullname||'';
     const su=document.getElementById('sNewUser');if(su)su.value=currentUser;
-    const sr=document.getElementById('sRecoveryEmail');if(sr)sr.value=prof.recoveryEmail||'';
   }
 }
 

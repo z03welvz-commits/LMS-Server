@@ -1972,6 +1972,7 @@ function saveProfile(){
   const tbu=document.getElementById('topbarUser');
   if(tbu)tbu.textContent=currentUserRole==='admin'?'Admin: '+(nick||currentUser):'Staff: '+(nick||currentUser);
   showMsg('profileMsg','Profile saved.',true);
+  ['sNickname','sFullName','sRecoveryEmail'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

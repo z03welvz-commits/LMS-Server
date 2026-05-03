@@ -2538,8 +2538,9 @@ let _lockPollInterval=null;
 let _dataRefreshInterval=null;
 let _lockCountdownInterval=null;
 let _isLockHolder=false;
-let _isLockLoading=false; // true while takeLock() is in flight — blocks poll from wiping loading UI
-let _userReleasedLock=false; // true after a voluntary release — prevents poll from auto-removing readonly-mode
+let _isLockLoading=false;   // true while takeLock() is in flight — blocks poll from wiping loading UI
+let _isReleaseLoading=false; // true while releaseLock() is in flight — blocks poll and freezes bar
+let _userReleasedLock=false;  // true after a voluntary release — prevents poll from auto-removing readonly-mode
 let _lockInfo=null;
 let _lastActivityRenew=0; // timestamp of last activity-triggered renew
 let _missedPollCount=0;   // consecutive failed Drive reads (now wired to threshold)
@@ -2571,6 +2572,29 @@ function _setLockLoading(on){
   if(on){
     if(bar)bar.className='lock-loading';
     if(txt)txt.textContent='Acquiring edit access…';
+    if(takeBtn){takeBtn.disabled=true;}
+    if(dot)dot.style.display='none';
+    if(!existingSpinner&&bar){
+      const sp=document.createElement('span');sp.className='lock-spinner';
+      bar.insertBefore(sp,bar.firstChild);
+    }
+  }else{
+    if(existingSpinner)existingSpinner.remove();
+    if(dot)dot.style.display='';
+    if(takeBtn){takeBtn.disabled=false;}
+  }
+}
+
+function _setReleaseLoading(on){
+  _isReleaseLoading=on;
+  const bar=document.getElementById('lockBar');
+  const txt=document.getElementById('lockBarText');
+  const takeBtn=document.getElementById('lockTakeBtn');
+  const dot=bar?bar.querySelector('.lock-dot'):null;
+  const existingSpinner=bar?bar.querySelector('.lock-spinner'):null;
+  if(on){
+    if(bar)bar.className='lock-loading';
+    if(txt)txt.textContent='Releasing edit lock…';
     if(takeBtn){takeBtn.disabled=true;}
     if(dot)dot.style.display='none';
     if(!existingSpinner&&bar){
@@ -2675,13 +2699,17 @@ async function takeLock(){
 
 async function releaseLock(){
   if(!_isLockHolder)return;
-  _userReleasedLock=true; // mark voluntary release so _pollLock won't flip back to edit mode
+  _userReleasedLock=true;   // mark voluntary release so _pollLock won't flip back to edit mode
+  _setReleaseLoading(true);  // show spinner, disable button immediately
   _isLockHolder=false;
-  if(_gdriveReady) await _gdriveClearLock();
-  _lockInfo=null;
   clearInterval(_lockRenewInterval);_lockRenewInterval=null;
   clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;
   clearInterval(_viewerCountdownInterval);_viewerCountdownInterval=null;
+  if(_gdriveReady) await _gdriveClearLock();
+  _lockInfo=null;
+  // 1.5s pause: lets Drive clear propagate and prevents the next poll from re-claiming the lock
+  await new Promise(r=>setTimeout(r,1500));
+  _setReleaseLoading(false);
   _updateLockBar(null);
   // After releasing, go to free state (no readonly — anyone can now take the lock)
   document.body.classList.remove('readonly-mode');
@@ -2790,7 +2818,8 @@ function _startCountdown(){
 }
 
 async function _pollLock(){
-  if(_isLockLoading) return; // takeLock() in flight — don't interfere
+  if(_isLockLoading) return;  // takeLock() in flight — don't interfere
+  if(_isReleaseLoading) return; // releaseLock() in flight — don't interfere
   if(!_gdriveReady){
     // No Drive — do not auto-grant edit access. The user must click "Take Edit Access"
     // explicitly. Without Drive there is no conflict protection, so we keep the
@@ -2866,6 +2895,15 @@ async function _pollLock(){
       return;
     }
     // Lock belongs to this session — reclaim it fully (sets renewal interval if not already running)
+    // BUT: if the user just voluntarily released, the Drive clear may still be in-flight.
+    // Don't reclaim — push the clear again and stay in free state.
+    if(_userReleasedLock){
+      if(_gdriveReady) _gdriveClearLock().catch(e=>console.warn('Release in-flight clear:',e));
+      _lockInfo=null;_isLockHolder=false;
+      _updateLockBar(null);
+      _startDataRefreshInterval();
+      return;
+    }
     if(!_isLockHolder){
       // We weren't tracking as holder (e.g. after a silent token refresh) — re-establish
       _isLockHolder=true;
@@ -2948,7 +2986,7 @@ function _startViewerCountdown(lockObj){
 }
 
 function _updateLockBar(lockObj){
-  if(_isLockLoading) return; // don't wipe loading state mid-flight
+  if(_isLockLoading||_isReleaseLoading) return; // don't wipe loading state mid-flight
   const bar=document.getElementById('lockBar');
   const txt=document.getElementById('lockBarText');
   const takeBtn=document.getElementById('lockTakeBtn');

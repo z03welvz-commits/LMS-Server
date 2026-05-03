@@ -1337,7 +1337,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 // ═══════════════════════════════════════════════════════════════════════════
 // GOOGLE DRIVE CONFIG — paste your OAuth Client ID here
 // ═══════════════════════════════════════════════════════════════════════════
-const GDRIVE_CLIENT_ID = '546916684093-p3a58p8uiha5uvfg4dtq7rmqqqj77ck2.apps.googleusercontent.com';
+const GDRIVE_CLIENT_ID = 'PASTE_YOUR_CLIENT_ID_HERE';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
 const GDRIVE_FILE_NAME = 'lms_data.json';
 const GDRIVE_LOCK_PROP = 'lms_lock'; // stored as Drive file appProperty
@@ -1435,7 +1435,8 @@ function _updateLoginPageState(){ _gdriveUpdateLoginUI(); }
 function getCredentials(){return JSON.parse(localStorage.getItem('lms7_creds')||'null')||{user:'admin',hash:null,legacyPass:'admin123'};}
 
 async function doLogin(){
-  // SECURITY: Google Drive must be connected before login is allowed
+  // SECURITY: Google Drive must be connected before login is allowed.
+  // Accept either _gdriveReady (auto-restore) or _credentialsFromFile (just signed in)
   if(!_gdriveReady && !_credentialsFromFile){
     const msg=document.getElementById('loginErr');
     if(msg){msg.textContent='Connect Google Drive first — click the button above.';msg.style.display='block';}
@@ -1800,6 +1801,7 @@ async function _gfetch(url, opts={}){
 // ── Find or create lms_data.json on Drive ────────────────────────────────────
 async function _gdriveInitFile(){
   _gdriveSetMsg('Connecting to Google Drive…','');
+  _credentialsFromFile = true; // token confirmed — allow login even before file loads
   // Search for existing file
   const q = encodeURIComponent(`name='${GDRIVE_FILE_NAME}' and trashed=false and mimeType='application/json'`);
   const r = await _gfetch(`${GDRIVE_API}/files?q=${q}&fields=files(id,name,modifiedTime)&spaces=drive`);
@@ -1951,7 +1953,7 @@ function _gdriveUpdateLoginUI(){
   const banner = document.getElementById('gdriveConnectBanner');
   const connected = document.getElementById('gdriveConnectedBanner');
   const loginBtn  = document.getElementById('loginSubmitBtn');
-  if(_gdriveReady){
+  if(_gdriveReady || _credentialsFromFile){
     if(banner)  banner.style.display='none';
     if(connected){ connected.style.display='flex'; const t=document.getElementById('gdriveConnectedText'); if(t)t.textContent='Google Drive connected — data loaded'; }
     if(loginBtn){ loginBtn.disabled=false; loginBtn.style.opacity=''; loginBtn.style.cursor=''; }

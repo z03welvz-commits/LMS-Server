@@ -1933,6 +1933,7 @@ function switchSettingsTab(tab,btn){
   }
   if(tab==='profile'){
     const su=document.getElementById('sNewUser');if(su)su.value=currentUser;
+    ['sNickname','sFullName','sRecoveryEmail'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   }
 }
 
@@ -1941,7 +1942,7 @@ function switchSettingsTab(tab,btn){
 // SECURITY: Wipe all credential and sensitive profile fields so they are never
 // left visible on an unattended screen. Called after save and on navigation away.
 function _clearCredentialFields(){
-  ['sCurPass','sNewPass'].forEach(id=>{
+  ['sCurPass','sNewPass','sNickname','sFullName'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
   // sNewUser is re-populated from currentUser each time the tab opens — clear it too

@@ -1414,13 +1414,13 @@ function saveUsersArray(arr){
 }
 
 async function ensureDefaultAdmin(){
-  // In Drive mode: credentials must come from Drive, not seeded locally
-  if(_gdriveReady){ return getUsersArray(); }
   if(!_defaultAdminHash) _defaultAdminHash=await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
   let users=getUsersArray();
-  if(!users){
+  if(!users||users.length===0){
     users=[{username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null}];
     saveUsersArray(users);
+    // If Drive is ready, immediately write the seeded admin to Drive
+    if(_gdriveReady) await _gdriveSaveFile();
   }
   return users;
 }
@@ -1851,8 +1851,14 @@ async function _gdriveLoadFile(){
       localStorage.setItem('lms7_users', JSON.stringify(data.users));
       _credentialsFromFile = true;
     } else {
-      _credentialsFromFile = true; // first-time setup
-      await ensureDefaultAdmin();
+      // Fresh file — no users yet. Seed the default admin and save back to Drive.
+      _credentialsFromFile = true;
+      if(!_defaultAdminHash) _defaultAdminHash = await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
+      const adminUser = {username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null};
+      _lmsUsersOverride = [adminUser];
+      localStorage.setItem('lms7_users', JSON.stringify([adminUser]));
+      // Save the seeded admin back to the Drive file immediately
+      setTimeout(()=>_gdriveSaveFile(), 500);
     }
     loadDataFromObject(data);
     if(document.getElementById('appShell').style.display !== 'none'){

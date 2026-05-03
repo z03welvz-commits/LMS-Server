@@ -1415,7 +1415,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 // GOOGLE DRIVE CONFIG — paste your OAuth Client ID here
 // ═══════════════════════════════════════════════════════════════════════════
 const GDRIVE_CLIENT_ID = '546916684093-p3a58p8uiha5uvfg4dtq7rmqqqj77ck2.apps.googleusercontent.com';
-const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
+const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive';
 const GDRIVE_FILE_NAME   = 'lms_data.json';
 const GDRIVE_DEFAULT_FOLDER = 'LMS Data'; // default folder — keeps DB away from Drive root
 const GDRIVE_LOCK_PROP = 'lms_lock'; // stored as Drive file appProperty
@@ -2193,6 +2193,9 @@ async function _gdriveLoadFile(){
 async function _gdriveSaveFile(){
   if(!_gdriveReady || !_gdriveFileId) return;
   const payload = getAllData();
+  // Millisecond-precision timestamp — every write is unique so viewers' savedAt compare always detects change
+  payload.savedAt = new Date().toISOString() + '.' + Date.now();
+  payload.pingAt  = Date.now(); // fast integer comparison for burst-poll detection
   // Preserve the current lock state so a data save never wipes the lock
   if(_lockInfo) payload._lock = _lockInfo;
   const body = JSON.stringify(payload, null, 2);
@@ -2246,12 +2249,14 @@ async function gdriveForceSave(){
 async function _gdriveReadLock(){
   if(!_gdriveReady || !_gdriveFileId) return null;
   try{
-    const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`);
+    // Cache-bust: append timestamp so Google Drive CDN never serves a stale copy
+    const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media&_cb=${Date.now()}`,{headers:{'Cache-Control':'no-cache, no-store'}});
     if(!r.ok) return null;
     const text = await r.text();
     const data = JSON.parse(text);
     // Update local data cache while we're here (only if app is open and no lock held)
     const savedAt = data.savedAt||'';
+    const pingAt  = data.pingAt||0;
     if(savedAt !== _lastServerSavedAt && !_isLockHolder){
       _lastServerSavedAt = savedAt;
       if(data.users&&Array.isArray(data.users)){
@@ -2265,6 +2270,12 @@ async function _gdriveReadLock(){
         _showRefreshToast();
       }
     }
+    // Burst-poll: if pingAt is newer than what we last saw, the editor just saved —
+    // schedule extra polls so the next change arrives in ~1s not ~5s.
+    if(pingAt > _lastPingAt && !_isLockHolder){
+      _lastPingAt = pingAt;
+      _scheduleBurstPolls();
+    }
     return data._lock || null;
   }catch(e){
     return {_error:true, reason:e.message};
@@ -2273,8 +2284,8 @@ async function _gdriveReadLock(){
 async function _gdriveWriteLock(lockObj){
   if(!_gdriveReady || !_gdriveFileId) return;
   try{
-    // Read current file, inject lock, write back
-    const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`);
+    // Read current file, inject lock, write back (cache-busted)
+    const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media&_cb=${Date.now()}`,{headers:{'Cache-Control':'no-cache, no-store'}});
     if(!r.ok) return;
     const text = await r.text();
     const data = JSON.parse(text);
@@ -2290,7 +2301,7 @@ async function _gdriveWriteLock(lockObj){
 async function _gdriveClearLock(){
   if(!_gdriveReady || !_gdriveFileId) return;
   try{
-    const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`);
+    const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media&_cb=${Date.now()}`,{headers:{'Cache-Control':'no-cache, no-store'}});
     if(!r.ok) return;
     const text = await r.text();
     const data = JSON.parse(text);
@@ -2413,11 +2424,11 @@ let _lastExportTime=localStorage.getItem('lms7_lastExport')||null;
 // ═══════════════════════════════════════════════════════════════════════════
 // FEATURE 3 — EDIT LOCK SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════
-const LOCK_DURATION_MS=60*60*1000; // 1 hour — auto-renewed on activity
-const LOCK_RENEW_MS=5*60*1000;     // renew every 5 min
-const LOCK_POLL_MS=10*1000;        // poll every 10s — fast enough for near-real-time lock awareness
-const DATA_POLL_MS=10*1000;        // data refresh piggybacks lock poll now (same interval)
-const LOCK_ACTIVITY_DEBOUNCE_MS=60*1000; // renew at most once per minute on activity
+const LOCK_DURATION_MS=3*60*1000;  // 3 min — short so abandoned locks expire fast; active editors auto-renew
+const LOCK_RENEW_MS=90*1000;       // renew every 90s while editing (well within 3-min window)
+const LOCK_POLL_MS=5*1000;         // poll every 5s — near-real-time lock + data awareness
+const DATA_POLL_MS=5*1000;         // data refresh piggybacks lock poll
+const LOCK_ACTIVITY_DEBOUNCE_MS=20*1000; // renew on user activity at most once per 20s
 
 let _lockRenewInterval=null;
 let _lockPollInterval=null;
@@ -2457,7 +2468,7 @@ async function takeLock(){
     if(exp>new Date()){alert('Cannot take edit access — '+existing.displayName+' is currently editing.');return;}
   }
   const now=new Date();
-  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString()};
+  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString()};
   await _gdriveWriteLock(lockObj);
   _lockInfo=lockObj;
   _isLockHolder=true;
@@ -2474,11 +2485,12 @@ async function releaseLock(){
   _lockInfo=null;
   clearInterval(_lockRenewInterval);_lockRenewInterval=null;
   clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;
+  clearInterval(_viewerCountdownInterval);_viewerCountdownInterval=null;
   _updateLockBar(null);
-  if(_gdriveReady){
-    document.body.classList.add('readonly-mode');
-    _startDataRefreshInterval();
-  }
+  // After releasing, go to free state (no readonly — anyone can now take the lock)
+  document.body.classList.remove('readonly-mode');
+  // Let the next poll re-evaluate; if Drive-connected keep polling for data
+  if(_gdriveReady) _startDataRefreshInterval();
 }
 
 async function forceReleaseLock(){
@@ -2508,7 +2520,7 @@ async function _renewLockNow(){
   // Shared renewal logic — called by interval AND activity debounce
   if(!_isLockHolder) return;
   const now=new Date();
-  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:_lockInfo?_lockInfo.since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString()};
+  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:_lockInfo?_lockInfo.since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString()};
   if(_gdriveReady){ try{ await _gdriveWriteLock(lockObj); }catch(e){ console.warn('Lock renew failed:',e); } }
   _lockInfo=lockObj;
   _updateLockBar(lockObj);
@@ -2523,8 +2535,22 @@ function _startRenewInterval(){
 function _startCountdown(){
   clearInterval(_lockCountdownInterval);
   _lockCountdownInterval=null;
-  const el=document.getElementById('lockCountdown');
-  if(el) el.textContent='(auto-renews while active)';
+  // Tick every second — editor sees live countdown; warns at 30s remaining
+  _lockCountdownInterval=setInterval(()=>{
+    if(!_lockInfo||!_isLockHolder){clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;return;}
+    const remMs=Math.max(0,new Date(_lockInfo.expiresAt)-Date.now());
+    const remSec=Math.ceil(remMs/1000);
+    const el=document.getElementById('lockCountdown');
+    if(!el)return;
+    if(remSec<=30){
+      el.textContent='⚠ lock expires in '+remSec+'s';
+      el.style.color='#A32D2D';el.style.fontWeight='700';
+    } else {
+      const m=Math.floor(remSec/60),s=remSec%60;
+      el.textContent='('+m+':'+(s<10?'0':'')+s+' left)';
+      el.style.color='#888780';el.style.fontWeight='';
+    }
+  },1000);
 }
 
 async function _pollLock(){
@@ -2612,14 +2638,60 @@ function _startDataRefreshInterval(){
   // This function is kept as a no-op for compatibility with existing call sites.
 }
 let _lastServerSavedAt='';
+let _lastPingAt=0;
+let _burstPollTimeouts=[];
 
-function _showRefreshToast(){
+// After detecting a change, fire 3 extra polls at 1s/2s/3s so rapid saves from the
+// editor reach viewers near-instantly without permanently shortening the poll interval.
+function _scheduleBurstPolls(){
+  _burstPollTimeouts.forEach(t=>clearTimeout(t));
+  _burstPollTimeouts=[];
+  [1000,2000,3500].forEach(delay=>{
+    _burstPollTimeouts.push(setTimeout(()=>{ if(_gdriveReady&&!_isLockHolder) _pollLock(); },delay));
+  });
+}
+
+function _showRefreshToast(editorName){
   const t=document.getElementById('refreshToast');
   if(!t)return;
   const now=new Date();
-  t.textContent='↻ Data refreshed — '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  const time=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0');
+  const who=editorName||((_lockInfo&&_lockInfo.lockedBy!==currentUser)?(_lockInfo.displayName||_lockInfo.lockedBy):null);
+  t.textContent='↻ '+(who?who+' saved changes':'Data updated')+' at '+time;
   t.style.display='block';
-  setTimeout(()=>t.style.display='none',3000);
+  clearTimeout(t._hideTimer);
+  t._hideTimer=setTimeout(()=>t.style.display='none',4000);
+}
+
+// ── Live-ticking countdown for the viewer (read-only) side ──────────────────
+let _viewerCountdownInterval=null;
+function _startViewerCountdown(lockObj){
+  clearInterval(_viewerCountdownInterval);_viewerCountdownInterval=null;
+  if(!lockObj||!lockObj.lockedBy||lockObj.lockedBy===currentUser)return;
+  _viewerCountdownInterval=setInterval(()=>{
+    const remMs=Math.max(0,new Date(lockObj.expiresAt)-Date.now());
+    const remSec=Math.ceil(remMs/1000);
+    const editorName=lockObj.displayName||lockObj.lockedBy;
+    const txt=document.getElementById('lockBarText');
+    const noticeMain=document.getElementById('editingNoticeMain');
+    const noticeSub=document.getElementById('editingNoticeSub');
+    // Time remaining label
+    let remLabel;
+    if(remSec<=0){remLabel='expiring…';}
+    else if(remSec<60){remLabel=remSec+'s left';}
+    else{const m=Math.floor(remSec/60),s=remSec%60;remLabel=m+':'+(s<10?'0':'')+s+' left';}
+    // Last activity label
+    let actLabel='';
+    if(lockObj.lastActivity){
+      const ageSec=Math.round((Date.now()-new Date(lockObj.lastActivity))/1000);
+      if(ageSec<5){actLabel=' · active now';}
+      else if(ageSec<60){actLabel=' · last active '+ageSec+'s ago';}
+      else{const am=Math.round(ageSec/60);actLabel=' · last active '+am+'m ago';}
+    }
+    if(txt) txt.textContent='🔒 Read-only — '+editorName+' is editing ('+remLabel+actLabel+')';
+    if(noticeMain) noticeMain.textContent='🔒 '+editorName+' is currently editing — Read-Only Mode';
+    if(noticeSub) noticeSub.textContent='All write actions are disabled. '+remLabel+' on the lock'+actLabel+'. Wait for '+editorName+' to release, or ask an admin to force-release.';
+  },1000);
 }
 
 function _updateLockBar(lockObj){
@@ -2632,8 +2704,10 @@ function _updateLockBar(lockObj){
   const noticeMain=document.getElementById('editingNoticeMain');
   const noticeSub=document.getElementById('editingNoticeSub');
   if(!bar)return;
+  // Stop any previous viewer countdown
+  clearInterval(_viewerCountdownInterval);_viewerCountdownInterval=null;
   bar.className='lock-none';
-  if(countdown)countdown.textContent='';
+  if(countdown){countdown.textContent='';countdown.style.color='';countdown.style.fontWeight='';}
   if(forceBtn)forceBtn.style.display='none';
   if(noticeBanner)noticeBanner.classList.remove('show');
 
@@ -2650,21 +2724,25 @@ function _updateLockBar(lockObj){
     bar.className='lock-self';
     if(txt)txt.textContent='🔒 You are editing — others are in read-only mode';
     if(takeBtn){takeBtn.style.display='';takeBtn.className='lock-btn lock-release';takeBtn.textContent='Release Edit Lock';takeBtn.setAttribute('onclick','releaseLock()');}
+    // Editor countdown is handled by _startCountdown() called from _startRenewInterval()
   }else{
     const editorName=lockObj.displayName||lockObj.lockedBy;
-    const remMs=Math.max(0,new Date(lockObj.expiresAt)-new Date());
-    const remMins=Math.round(remMs/60000);
-    const remLabel=remMins>=60?`${Math.round(remMins/60)}h`:`${remMins} min`;
+    const remMs=Math.max(0,new Date(lockObj.expiresAt)-Date.now());
+    const remSec=Math.ceil(remMs/1000);
+    const m=Math.floor(remSec/60),s=remSec%60;
+    const remLabel=remSec<60?remSec+'s':m+':'+(s<10?'0':'')+s;
     bar.className='lock-other';
-    if(txt)txt.textContent=`🔒 Read-only — ${editorName} is editing (expires ${remLabel})`;
+    if(txt)txt.textContent='🔒 Read-only — '+editorName+' is editing ('+remLabel+' left)';
     if(takeBtn)takeBtn.style.display='none';
     if(forceBtn&&currentUserRole==='admin')forceBtn.style.display='';
     // Show prominent editing notice banner
     if(noticeBanner){
       noticeBanner.classList.add('show');
-      if(noticeMain)noticeMain.textContent=`🔒 ${editorName} is currently editing — Read-Only Mode`;
-      if(noticeSub)noticeSub.textContent=`All write actions are disabled on your device. Lock expires in ${remLabel}. Wait for ${editorName} to release, or ask an admin to force-release.`;
+      if(noticeMain)noticeMain.textContent='🔒 '+editorName+' is currently editing — Read-Only Mode';
+      if(noticeSub)noticeSub.textContent='All write actions are disabled. Lock expires in '+remLabel+'. Wait for '+editorName+' to release, or ask an admin to force-release.';
     }
+    // Start live viewer countdown so the banner updates every second without polling
+    _startViewerCountdown(lockObj);
   }
 }
 
@@ -7396,10 +7474,19 @@ function importData(input){
       if(data.actlog!==undefined&&!Array.isArray(data.actlog))throw new Error('actlog must be an array');
       if(!data.employees&&!data.leaves)throw new Error('File does not appear to be a valid LMS export');
       loadDataFromObject(data);
-      save();
-      // Manual import must ALWAYS push to Drive immediately so other devices see it.
-      // save() skips Drive when lock isn't held — bypass that with a direct call.
+      // Persist to localStorage immediately
+      try{
+        localStorage.setItem('lms7_emp',JSON.stringify(employees));
+        localStorage.setItem('lms7_lv',JSON.stringify(leaves));
+        localStorage.setItem('lms7_ovr',JSON.stringify(overrides));
+        localStorage.setItem('lms7_act',JSON.stringify(actlog));
+      }catch(e){ console.warn('localStorage save failed:',e); }
+      // Manual import must ALWAYS push to Drive so other devices see it.
+      // We skip save() here to avoid a racing Drive write — one write only, with a
+      // guaranteed-unique savedAt so other devices' poll detects the change.
       if(_gdriveReady){
+        // Reset _lastServerSavedAt so this device won't skip the update on next poll
+        _lastServerSavedAt = '';
         _gdriveSaveFile().catch(e=>console.warn('Drive save (import) failed:',e));
       }
       buildDropdowns();renderHome();renderEmpTable();renderLeaveLog();renderOvrTable();renderActivity();refreshStorageStatus();

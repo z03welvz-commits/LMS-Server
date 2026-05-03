@@ -2539,6 +2539,7 @@ let _dataRefreshInterval=null;
 let _lockCountdownInterval=null;
 let _isLockHolder=false;
 let _isLockLoading=false; // true while takeLock() is in flight — blocks poll from wiping loading UI
+let _userReleasedLock=false; // true after a voluntary release — prevents poll from auto-removing readonly-mode
 let _lockInfo=null;
 let _lastActivityRenew=0; // timestamp of last activity-triggered renew
 let _missedPollCount=0;   // consecutive failed Drive reads (now wired to threshold)
@@ -2584,6 +2585,7 @@ function _setLockLoading(on){
 }
 
 async function takeLock(){
+  _userReleasedLock=false; // user is actively taking edit access — clear the released flag
   if(!_gdriveReady){
     _isLockHolder=true;
     document.body.classList.remove('readonly-mode');
@@ -2673,8 +2675,9 @@ async function takeLock(){
 
 async function releaseLock(){
   if(!_isLockHolder)return;
+  _userReleasedLock=true; // mark voluntary release so _pollLock won't flip back to edit mode
   _isLockHolder=false;
-  if(_gdriveReady)_gdriveClearLock();
+  if(_gdriveReady) await _gdriveClearLock();
   _lockInfo=null;
   clearInterval(_lockRenewInterval);_lockRenewInterval=null;
   clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;
@@ -2823,7 +2826,11 @@ async function _pollLock(){
     // No lock on Drive = nobody is editing = everyone is FREE.
     _lockInfo=null;
     _updateLockBar(null);
-    document.body.classList.remove('readonly-mode');
+    // Only remove readonly-mode if the user hasn't explicitly just released the lock.
+    // Without this guard, the poll fires within 5s of release and flips back to edit mode.
+    if(!_userReleasedLock){
+      document.body.classList.remove('readonly-mode');
+    }
     _startDataRefreshInterval(); // keep polling so imported data still propagates
     return;
   }

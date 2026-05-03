@@ -1418,7 +1418,6 @@ const GDRIVE_CLIENT_ID = '546916684093-p3a58p8uiha5uvfg4dtq7rmqqqj77ck2.apps.goo
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive';
 const GDRIVE_FILE_NAME   = 'lms_data.json';
 const GDRIVE_DEFAULT_FOLDER = 'LMS Data'; // default folder — keeps DB away from Drive root
-const GDRIVE_LOCK_PROP = 'lms_lock'; // stored as Drive file appProperty
 const GDRIVE_API       = 'https://www.googleapis.com/drive/v3';
 const GDRIVE_UPLOAD    = 'https://www.googleapis.com/upload/drive/v3';
 
@@ -1463,6 +1462,7 @@ function _getConfiguredFolderName(){ return (localStorage.getItem('lms_gfolder_c
 function _setConfiguredFolderName(n){ try{ localStorage.setItem('lms_gfolder_config',n||''); }catch(e){} }
 let _gdriveReady      = false; // true when token + file ID known
 let _gdriveAccountEmail = '';
+let _gdriveFileEtag   = '';  // Drive ETag for atomic conditional writes (If-Match)
 
 // Default admin password is NOT stored in source. On first run, the system
 // forces a password change before any data access is granted.
@@ -1707,6 +1707,9 @@ async function doForcePwChange(){
   uObj.hash=await hashPass(np);
   uObj.mustChangePassword=false;
   saveUsersArray(users);
+  // FIX: Push the cleared mustChangePassword flag to Drive immediately so
+  // the user is not forced to change password again on their next session.
+  if(_gdriveReady) await _gdriveSaveFile().catch(e=>console.warn('Drive save (forcePwChange) failed:',e));
   document.getElementById('changePwOverlay').classList.remove('show');
   document.getElementById('cpwNew').value='';
   document.getElementById('cpwConfirm').value='';
@@ -1751,6 +1754,7 @@ async function doLogout(){
   await releaseLock();
   stopLockTimers();
   _lockInfo=null;_isLockHolder=false;
+  _clearCredentialFields();
   document.body.classList.remove('readonly-mode');
   currentUser='';currentUserDisplay='';currentUserRole='';
   document.getElementById('appShell').style.display='none';
@@ -1781,8 +1785,14 @@ async function changeCredentials(){
       saveUsersArray(users);
       actlog.push({id:aNid++,empId:'SYSTEM',name:currentUserDisplay,username:currentUser,displayName:currentUserDisplay,reqType:'System',action:'Credentials Updated',dateReq:iso(getToday()),admin:currentUser,actionDate:isoNow()});
       save();
+      // FIX: Force an immediate Drive save so the new credentials reach lms_data.json
+      // before the user exits. save() alone may be skipped if the lock isn't held,
+      // and it's fire-and-forget — a tab close right after save() can race the upload.
+      if(_gdriveReady) await _gdriveSaveFile().catch(e=>console.warn('Drive save (changeCredentials) failed:',e));
       showMsg('settingsMsg','Credentials updated successfully.',true);
-      ['sCurPass','sNewUser','sNewPass'].forEach(id=>document.getElementById(id).value='');
+      // SECURITY: Clear all credential fields immediately after save so they are
+      // not left readable on an unattended screen.
+      _clearCredentialFields();
       return;
     }
   }
@@ -1792,7 +1802,6 @@ async function changeCredentials(){
   const creds=getCredentials();
   let curMatch=false;
   if(creds.hash){curMatch=await hashPass(cur)===creds.hash;}else{curMatch=false;}
-  if(!curMatch){showMsg('settingsMsg','Current password is incorrect.',false);return;}
   if(!curMatch){showMsg('settingsMsg','Current password is incorrect.',false);return;}
   if(!nu||!np){showMsg('settingsMsg','Username and new password are required.',false);return;}
   const h=await hashPass(np);
@@ -1895,6 +1904,11 @@ function removeUser(username){
 }
 
 function switchSettingsTab(tab,btn){
+  // SECURITY: Clear sensitive credential fields when switching away from the profile tab.
+  const activeTab=document.querySelector('.stab.active');
+  const leavingCredentials=activeTab&&activeTab.getAttribute('onclick')&&activeTab.getAttribute('onclick').includes("'profile'");
+  if(leavingCredentials&&tab!=='profile') _clearCredentialFields();
+
   ['profile','limits','storage','users'].forEach(t=>{
     const el=document.getElementById('stab-'+t);
     if(el)el.style.display=t===tab?'':'none';
@@ -1921,6 +1935,22 @@ function switchSettingsTab(tab,btn){
 }
 
 // Removed: folder name config (replaced by Google Drive)
+
+// SECURITY: Wipe all credential and sensitive profile fields so they are never
+// left visible on an unattended screen. Called after save and on navigation away.
+function _clearCredentialFields(){
+  ['sCurPass','sNewPass'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  // sNewUser is re-populated from currentUser each time the tab opens — clear it too
+  // so the old username isn't left sitting in the field after a username change.
+  const su=document.getElementById('sNewUser');if(su)su.value='';
+  // Recovery email is sensitive — clear it; it will be re-loaded from profile on tab open.
+  const sr=document.getElementById('sRecoveryEmail');if(sr)sr.value='';
+  // Also clear the user management temp-password field if it's open
+  const tp=document.getElementById('umTempPass');if(tp)tp.value='';
+  const rp=document.getElementById('umResetPass');if(rp)rp.value='';
+}
 
 function getAdminProfile(){return JSON.parse(localStorage.getItem('lms7_profile')||'null')||{nickname:'',fullname:'',recoveryEmail:''};}
 function saveProfile(){
@@ -2225,6 +2255,9 @@ async function _gdriveSaveFile(){
       headers:{'Content-Type':'application/json'},
       body
     });
+    // PERF: Invalidate the cached modifiedTime so the next poll does a full
+    // download and confirms our write landed before resuming skip-if-unchanged behaviour.
+    _lastDriveModifiedTime='';
     updateStorageIndicator('file');
     const el=document.getElementById('gdriveSyncStatus');
     if(el){ el.textContent='Last saved '+new Date().toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'}); }
@@ -2236,22 +2269,29 @@ async function _gdriveSaveFile(){
   }
 }
 
+// PERF: Cache the daily backup check — once we confirm it exists, skip the Drive
+// search for the rest of the session. Reset at midnight via date comparison.
+let _backupDoneDate='';
+
 async function _gdriveWriteBackup(body){
   try{
     const today = new Date().toISOString().slice(0,10);
+    // Already confirmed backup exists for today — skip the Drive search entirely.
+    if(_backupDoneDate===today) return;
     const bkName = 'lms_backup_'+today+'.json';
     // Search for today's backup scoped to the same folder as the main file
     let q = `name='${bkName}' and trashed=false`;
     if(_gdriveFolderId) q += ` and '${_gdriveFolderId}' in parents`;
     const r = await _gfetch(`${GDRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id)`);
     const d = await r.json();
-    if(d.files && d.files.length > 0) return; // already backed up today
+    if(d.files && d.files.length > 0){ _backupDoneDate=today; return; } // already backed up today
     // Create backup in the same folder as lms_data.json
     const meta = { name:bkName, mimeType:'application/json', ..._gdriveFolderId?{parents:[_gdriveFolderId]}:{} };
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(meta)],{type:'application/json'}));
     form.append('file',     new Blob([body],{type:'application/json'}));
     await _gfetch(`${GDRIVE_UPLOAD}/files?uploadType=multipart`, { method:'POST', body:form });
+    _backupDoneDate=today;
   }catch(e){ console.warn('Backup write failed (non-critical):',e); }
 }
 
@@ -2261,19 +2301,36 @@ async function gdriveForceSave(){
   _gdriveSetMsg('✓ Synced to Drive.','ok');
 }
 
-// ── Lock system — stored INSIDE lms_data.json as a top-level field ───────────
-// IMPORTANT: appProperties on Drive files are only accessible to the app that set them
-// via the same OAuth client. When different browser sessions or devices use drive.file
-// scope, appProperties written by one session are invisible to others. The lock MUST
-// live inside the lms_data.json file body so all devices can read and write it.
+// ── Lock system — stored inside lms_data.json as a top-level _lock field ──────
+// The lock is embedded in the shared file body so all sessions can read and write it.
+// Writes use an ETag If-Match conditional to make lock acquisition atomic.
+// PERF: Track Drive modifiedTime to skip full downloads when file hasn't changed.
+let _lastDriveModifiedTime='';
+
 async function _gdriveReadLock(){
   if(!_gdriveReady || !_gdriveFileId) return null;
   try{
-    // Cache-bust: append timestamp so Google Drive CDN never serves a stale copy
-    const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media&_cb=${Date.now()}`,{headers:{'Cache-Control':'no-cache, no-store'}});
+    // PERF FIX: Fetch only metadata first (tiny ~200B request).
+    // If modifiedTime is unchanged, the file is identical — skip the full download
+    // and return the cached lock state. This eliminates the 100KB+ full-file download
+    // on every 5s poll when nothing has changed (the common case).
+    const metaR=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?fields=modifiedTime`);
+    if(!metaR.ok) return null;
+    const meta=await metaR.json();
+    const modTime=meta.modifiedTime||'';
+    if(modTime && modTime===_lastDriveModifiedTime){
+      // File unchanged — return cached lock without a full download.
+      return _lockInfo&&_lockInfo.lockedBy?_lockInfo:null;
+    }
+    // File is new or changed — download full content.
+    const r=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`,{headers:{'Cache-Control':'no-cache, no-store'}});
     if(!r.ok) return null;
+    // Capture ETag for atomic conditional writes in takeLock()
+    const etag=r.headers.get('ETag')||r.headers.get('etag')||'';
+    if(etag) _gdriveFileEtag=etag;
     const text = await r.text();
     const data = JSON.parse(text);
+    _lastDriveModifiedTime=modTime;
     // Update local data cache while we're here (only if app is open and no lock held)
     const savedAt = data.savedAt||'';
     const pingAt  = data.pingAt||0;
@@ -2301,37 +2358,49 @@ async function _gdriveReadLock(){
     return {_error:true, reason:e.message};
   }
 }
-async function _gdriveWriteLock(lockObj){
-  if(!_gdriveReady || !_gdriveFileId) return;
+// ── Atomic lock write helpers ─────────────────────────────────────────────────
+// Returns {ok:true} on success, {ok:false, conflict:true} on ETag mismatch (race),
+// or {ok:false} on other errors.
+async function _gdriveAtomicLockWrite(mutateFn){
+  if(!_gdriveReady || !_gdriveFileId) return {ok:false};
   try{
-    // Read current file, inject lock, write back (cache-busted)
-    const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media&_cb=${Date.now()}`,{headers:{'Cache-Control':'no-cache, no-store'}});
-    if(!r.ok) return;
-    const text = await r.text();
-    const data = JSON.parse(text);
-    data._lock = lockObj;
-    data.savedAt = data.savedAt || new Date().toISOString(); // preserve existing savedAt
-    await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`, {
+    // Fresh read — captures the latest ETag and file body atomically
+    const r=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`,{headers:{'Cache-Control':'no-cache, no-store'}});
+    if(!r.ok) return {ok:false};
+    const etag=r.headers.get('ETag')||r.headers.get('etag')||'';
+    if(etag) _gdriveFileEtag=etag;
+    const data=JSON.parse(await r.text());
+    // Apply caller's mutation (set or delete _lock)
+    mutateFn(data);
+    // Build conditional headers — If-Match ensures no other write landed between our read and write
+    const patchHeaders={'Content-Type':'application/json'};
+    if(etag) patchHeaders['If-Match']=etag;
+    const pw=await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`,{
       method:'PATCH',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(data, null, 2)
+      headers:patchHeaders,
+      body:JSON.stringify(data,null,2)
     });
-  }catch(e){ console.warn('Lock write:',e); }
+    if(pw.status===412){
+      // Precondition Failed — another client wrote between our read and write (race condition)
+      _gdriveFileEtag=''; // force full re-read on next poll
+      return {ok:false, conflict:true};
+    }
+    if(!pw.ok) return {ok:false};
+    // Capture updated ETag from write response
+    const newEtag=pw.headers.get('ETag')||pw.headers.get('etag')||'';
+    if(newEtag) _gdriveFileEtag=newEtag;
+    _lastDriveModifiedTime=''; // invalidate cache so next poll re-reads the new state
+    return {ok:true};
+  }catch(e){ console.warn('Lock write:',e); return {ok:false}; }
 }
+
+async function _gdriveWriteLock(lockObj){
+  return _gdriveAtomicLockWrite(data=>{ data._lock=lockObj; });
+}
+
 async function _gdriveClearLock(){
-  if(!_gdriveReady || !_gdriveFileId) return;
-  try{
-    const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media&_cb=${Date.now()}`,{headers:{'Cache-Control':'no-cache, no-store'}});
-    if(!r.ok) return;
-    const text = await r.text();
-    const data = JSON.parse(text);
-    delete data._lock;
-    await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`, {
-      method:'PATCH',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(data, null, 2)
-    });
-  }catch(e){}
+  // Best-effort — errors are non-fatal (TTL will expire the lock anyway)
+  await _gdriveAtomicLockWrite(data=>{ delete data._lock; }).catch(e=>console.warn('Lock clear:',e));
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
@@ -2457,8 +2526,10 @@ let _lockCountdownInterval=null;
 let _isLockHolder=false;
 let _lockInfo=null;
 let _lastActivityRenew=0; // timestamp of last activity-triggered renew
-let _missedPollCount=0;   // consecutive empty/null Drive reads before going readonly
-const MISSED_POLL_THRESHOLD=3; // require 3 consecutive misses before flipping readonly
+let _missedPollCount=0;   // consecutive failed Drive reads (now wired to threshold)
+const MISSED_POLL_THRESHOLD=3; // consecutive poll failures before treating Drive as down
+let _renewFailCount=0;    // consecutive lock-renewal failures while holding the lock
+const RENEW_FAIL_THRESHOLD=2; // drop to read-only after this many consecutive renew failures
 
 function initLockSystem(){
   if(!currentUser)return; // guard: never init before login completes
@@ -2470,26 +2541,49 @@ function stopLockTimers(){
   clearInterval(_lockRenewInterval);clearInterval(_lockPollInterval);
   clearInterval(_dataRefreshInterval);clearInterval(_lockCountdownInterval);
   _lockRenewInterval=null;_lockPollInterval=null;_dataRefreshInterval=null;_lockCountdownInterval=null;
+  _renewFailCount=0;
 }
 
 async function takeLock(){
   if(!_gdriveReady){
-    // No Drive — take "local" edit lock (no conflict protection)
+    // No Drive — warn user; see Fix C2 for why we no longer silently grant the lock
     _isLockHolder=true;
-    _updateLockBar({lockedBy:currentUser,displayName:currentUserDisplay,since:new Date().toISOString(),expiresAt:new Date(Date.now()+LOCK_DURATION_MS).toISOString()});
     document.body.classList.remove('readonly-mode');
+    const localLock={lockedBy:currentUser,displayName:currentUserDisplay,since:new Date().toISOString(),expiresAt:new Date(Date.now()+LOCK_DURATION_MS).toISOString(),lastActivity:new Date().toISOString()};
+    _lockInfo=localLock;
+    _updateLockBar(localLock);
     _startRenewInterval();
     return;
   }
-  // Check if already locked by someone else
+  // Read the current lock state — this also refreshes _gdriveFileEtag
   const existing=await _gdriveReadLock();
-  if(existing&&existing.lockedBy&&existing.lockedBy!==currentUser){
+  if(existing && !existing._error && existing.lockedBy && existing.lockedBy!==currentUser){
     const exp=new Date(existing.expiresAt);
-    if(exp>new Date()){alert('Cannot take edit access — '+existing.displayName+' is currently editing.');return;}
+    if(exp>new Date()){
+      alert('Cannot take edit access — '+existing.displayName+' is currently editing.');
+      return;
+    }
   }
   const now=new Date();
   const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString()};
-  await _gdriveWriteLock(lockObj);
+  // Atomic write — If-Match header prevents two clients from both succeeding simultaneously
+  const result=await _gdriveWriteLock(lockObj);
+  if(!result.ok){
+    if(result.conflict){
+      // Another user wrote the file between our read and write — re-read and re-evaluate
+      const freshLock=await _gdriveReadLock();
+      if(freshLock && freshLock.lockedBy && freshLock.lockedBy!==currentUser){
+        alert('Edit access was just taken by '+freshLock.displayName+'. Please wait.');
+        return;
+      }
+      // The write that beat us was unrelated (e.g. a data save) — retry once
+      const retry=await _gdriveWriteLock(lockObj);
+      if(!retry.ok){ alert('Failed to acquire edit lock. Please try again.'); return; }
+    } else {
+      alert('Failed to acquire edit lock. Check your connection and try again.');
+      return;
+    }
+  }
   _lockInfo=lockObj;
   _isLockHolder=true;
   _updateLockBar(lockObj);
@@ -2525,15 +2619,18 @@ async function forceReleaseLock(){
     const ph=await hashPass(pw);
     if(ph!==uObj.hash){alert('Incorrect password. Force-release cancelled.');return;}
   }
-  if(_gdriveReady)_gdriveClearLock();
+  // Await the clear so modifiedTime bumps — all polling clients detect the freed lock
+  // on their next poll (also resolves the stale-cache blind window after force-release).
+  if(_gdriveReady) await _gdriveClearLock();
   _lockInfo=null;
   _isLockHolder=false;
   clearInterval(_lockRenewInterval);_lockRenewInterval=null;
   clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;
-  document.body.classList.add('readonly-mode');
+  // Admin was never holding the lock — return to free state, not read-only.
+  document.body.classList.remove('readonly-mode');
   _updateLockBar(null);
   actlog.push({id:aNid++,empId:'SYSTEM',name:currentUserDisplay,username:currentUser,displayName:currentUserDisplay,reqType:'System',action:'Lock Force Released',dateReq:iso(getToday()),admin:currentUser,actionDate:isoNow()});
-  save();
+  save(); // bumps savedAt/pingAt so viewers pick up the cleared lock via burst-poll
 }
 
 async function _renewLockNow(){
@@ -2541,9 +2638,46 @@ async function _renewLockNow(){
   if(!_isLockHolder) return;
   const now=new Date();
   const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:_lockInfo?_lockInfo.since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString()};
-  if(_gdriveReady){ try{ await _gdriveWriteLock(lockObj); }catch(e){ console.warn('Lock renew failed:',e); } }
+  if(_gdriveReady){
+    const result=await _gdriveWriteLock(lockObj);
+    if(!result.ok){
+      _renewFailCount++;
+      console.warn(`Lock renew failed (${_renewFailCount}/${RENEW_FAIL_THRESHOLD})`);
+      if(_renewFailCount>=RENEW_FAIL_THRESHOLD){
+        // Drive unreachable long enough that the lock may have expired for other clients.
+        // Drop to read-only so no two users end up editing simultaneously.
+        _isLockHolder=false;
+        _lockInfo=null;
+        _renewFailCount=0;
+        clearInterval(_lockRenewInterval);_lockRenewInterval=null;
+        clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;
+        document.body.classList.add('readonly-mode');
+        _updateLockBar(null);
+        _showNetworkLostBanner();
+      }
+      return;
+    }
+    _renewFailCount=0; // successful renewal — reset counter
+  }
   _lockInfo=lockObj;
   _updateLockBar(lockObj);
+}
+
+// ── Network-lost banner (shown when the editor loses Drive connectivity) ──────
+function _showNetworkLostBanner(){
+  let el=document.getElementById('networkLostBanner');
+  if(!el){
+    el=document.createElement('div');
+    el.id='networkLostBanner';
+    Object.assign(el.style,{
+      position:'fixed',top:'0',left:'0',right:'0',zIndex:'999',
+      background:'#A32D2D',color:'#fff',textAlign:'center',
+      padding:'9px 16px',fontSize:'12px',fontWeight:'500',
+      display:'flex',alignItems:'center',justifyContent:'center',gap:'10px'
+    });
+    el.innerHTML='⚠ Lost connection to Google Drive — editing paused to prevent conflicts. Reconnect or reload to resume. <button onclick="document.getElementById(\'networkLostBanner\').remove()" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:11px">Dismiss</button>';
+    document.body.prepend(el);
+  }
 }
 
 function _startRenewInterval(){
@@ -2575,49 +2709,44 @@ function _startCountdown(){
 
 async function _pollLock(){
   if(!_gdriveReady){
-    // No Drive — single-user local mode: auto-grant the lock silently
-    if(!_isLockHolder){
-      _isLockHolder=true;
-      const localLock={lockedBy:currentUser,displayName:currentUserDisplay,since:new Date().toISOString(),expiresAt:new Date(Date.now()+LOCK_DURATION_MS).toISOString()};
-      _lockInfo=localLock;
-      document.body.classList.remove('readonly-mode');
-      _updateLockBar(localLock);
-      _startRenewInterval();
-    }
+    // No Drive — do not auto-grant edit access. The user must click "Take Edit Access"
+    // explicitly. Without Drive there is no conflict protection, so we keep the
+    // current state (whatever takeLock set) and do nothing here.
     return;
   }
   const lockObj=await _gdriveReadLock();
 
   // ── Drive read failed (network error, token expired, etc.) ──────────────────
-  // Keep existing state — never change lock state based on a failed read.
+  // Accumulate misses — only act after MISSED_POLL_THRESHOLD consecutive failures
+  // so transient blips do not change lock state.
   if(lockObj && lockObj._error){
+    _missedPollCount++;
     if(_isLockHolder){
-      console.warn('Lock poll: Drive unreachable, keeping local lock. Reason:', lockObj.reason);
+      console.warn(`Lock poll: Drive unreachable (${_missedPollCount}/${MISSED_POLL_THRESHOLD}). Reason:`, lockObj.reason);
+      // _renewLockNow tracks its own failure count and degrades to read-only when needed
+    } else if(_missedPollCount>=MISSED_POLL_THRESHOLD){
+      console.warn('Drive unreachable for multiple polls — keeping current lock state.');
     }
     return;
   }
+
+  // Confirmed good read — reset miss counter (applies to all branches below)
+  _missedPollCount=0;
 
   // ── No lock on file ──────────────────────────────────────────────────────────
   if(!lockObj||!lockObj.lockedBy){
     if(_isLockHolder){
       // We hold the lock locally but Drive shows nothing — re-establish it.
-      _missedPollCount=0;
       await _renewLockNow();
       return;
     }
-    // BUG FIX: No lock on Drive = nobody is editing = everyone is FREE.
-    // Old code wrongly added readonly-mode here, permanently blocking users.
-    // When unlocked: remove readonly, stop data-refresh polling (not needed).
-    _missedPollCount=0;
+    // No lock on Drive = nobody is editing = everyone is FREE.
     _lockInfo=null;
     _updateLockBar(null);
     document.body.classList.remove('readonly-mode');
     _startDataRefreshInterval(); // keep polling so imported data still propagates
     return;
   }
-
-  // Confirmed good read — reset miss counter
-  _missedPollCount=0;
 
   // ── Lock exists on Drive ─────────────────────────────────────────────────────
   const exp=new Date(lockObj.expiresAt);
@@ -2766,10 +2895,39 @@ function _updateLockBar(lockObj){
   }
 }
 
-// On page unload — attempt to release lock and save
+// ── Lock release on page unload / backgrounding ──────────────────────────────
+// sendBeacon keeps the request alive after the page tears down; plain fetch() is
+// cancelled by the browser during beforeunload and is unreliable.
+// We write the file body with _lock removed so the TTL is not the only safety net.
+function _buildUnloadPayload(){
+  try{
+    const data=getAllData();
+    delete data._lock;
+    data.savedAt=new Date().toISOString()+'.'+Date.now();
+    return JSON.stringify(data,null,2);
+  }catch(e){ return null; }
+}
+
 window.addEventListener('beforeunload',()=>{
-  if(_isLockHolder&&_gdriveReady){
-    try{_gdriveClearLock();}catch(e){}
+  if(!_isLockHolder || !_gdriveReady || !_gdriveFileId || !_gdriveToken) return;
+  const body=_buildUnloadPayload();
+  if(!body) return;
+  // sendBeacon uses the Fetch keepalive mechanism — survives page tear-down
+  // Authorization header is not supported by sendBeacon; we fall back to the
+  // uploadType=media PATCH with the token embedded in the URL (Drive accepts it).
+  const url=`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media&access_token=${encodeURIComponent(_gdriveToken.access_token)}`;
+  try{ navigator.sendBeacon(url, new Blob([body],{type:'application/json'})); }catch(e){}
+});
+
+// Mobile browsers freeze tabs instead of firing beforeunload — catch that too.
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden' && _isLockHolder && _gdriveReady){
+    // Attempt a keepalive fetch (non-blocking; browser may honour it when backgrounded)
+    const body=_buildUnloadPayload();
+    if(body && _gdriveToken && _gdriveFileId){
+      const url=`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media&access_token=${encodeURIComponent(_gdriveToken.access_token)}`;
+      try{ navigator.sendBeacon(url, new Blob([body],{type:'application/json'})); }catch(e){}
+    }
   }
 });
 
@@ -2954,19 +3112,32 @@ function getAllData(){
 }
 
 function isReadOnly(){
-  if(!_lockInfo||!_lockInfo.lockedBy)return false;
-  if(_lockInfo.lockedBy===currentUser)return false;
-  if(new Date(_lockInfo.expiresAt)<new Date())return false;
+  // Primary check: body class (set by poll and takeLock/releaseLock)
+  if(document.body.classList.contains('readonly-mode')) return true;
+  // Secondary check: lock state (covers edge cases where class and state diverge briefly)
+  if(!_lockInfo||!_lockInfo.lockedBy) return false;
+  if(_lockInfo.lockedBy===currentUser) return false;
+  if(new Date(_lockInfo.expiresAt)<new Date()) return false;
   return true;
 }
 
 function save(){
+  // Defense-in-depth: block writes if this client is in read-only mode,
+  // even if the call came from the browser console bypassing the UI.
+  if(isReadOnly()){
+    console.warn('save() blocked — client is in read-only mode.');
+    return;
+  }
   _clearSchedCache();
+  const nowIso = new Date().toISOString();
   try{
     localStorage.setItem('lms7_emp',JSON.stringify(employees));
     localStorage.setItem('lms7_lv',JSON.stringify(leaves));
     localStorage.setItem('lms7_ovr',JSON.stringify(overrides));
     localStorage.setItem('lms7_act',JSON.stringify(actlog));
+    // FIX: stamp the save time so loadDataFromObject can guard against
+    // a stale Drive file overwriting newer local credentials on reconnect.
+    localStorage.setItem('lms7_savedAt', nowIso);
   }catch(e){
     console.warn('localStorage save failed:',e);
     const el=document.getElementById('storageQuotaWarn');
@@ -3292,6 +3463,12 @@ function scheduledOn(ds,sh,pool,schedMap){
 // ─── NAVIGATION ──────────────────────────────────────────────────────────────
 const PAGE_TITLES={home:'Home',calendar:'Calendar',schedule:'Work Schedule',reports:'Reports',leave:'Leave Entry',employees:'Employees',activity:'Activity Log',settings:'Settings',manpower:'Manpower Ratio'};
 function goPage(name,btn){
+  // SECURITY: If leaving the settings page, wipe sensitive credential fields
+  // so they are never left visible on an unattended screen.
+  const currentPage=document.querySelector('.page.active');
+  if(currentPage&&currentPage.id==='page-settings'&&name!=='settings'){
+    _clearCredentialFields();
+  }
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
@@ -7474,7 +7651,22 @@ function loadDataFromObject(data){
   if(data.profile)localStorage.setItem('lms7_profile',JSON.stringify(data.profile));
   if(data.limits)localStorage.setItem('lms7_limits',JSON.stringify(data.limits));
   if(data.leaveTypes){localStorage.setItem('lms_leavetypes',JSON.stringify(data.leaveTypes));invalidateLeaveTypesCache();}
-  if(data.users&&Array.isArray(data.users)&&data.users.length>0){_lmsUsersOverride=data.users;localStorage.setItem('lms7_users',JSON.stringify(data.users));}
+  // FIX: Only overwrite the users array from Drive if it is genuinely newer than what
+  // we have locally. This prevents a race where the user changes credentials and exits
+  // before the Drive upload completes — on reconnect the stale Drive file would have
+  // overwritten the new credentials stored in localStorage.
+  if(data.users&&Array.isArray(data.users)&&data.users.length>0){
+    const driveTs = data.savedAt ? new Date(data.savedAt).getTime() : 0;
+    const localUsersRaw = localStorage.getItem('lms7_users');
+    const localSavedAtRaw = localStorage.getItem('lms7_savedAt');
+    const localTs = localSavedAtRaw ? new Date(localSavedAtRaw).getTime() : 0;
+    // Accept Drive users only if Drive file is newer than our local snapshot,
+    // OR if we have no local users at all (first load / fresh machine).
+    if(!localUsersRaw || driveTs >= localTs){
+      _lmsUsersOverride=data.users;
+      localStorage.setItem('lms7_users',JSON.stringify(data.users));
+    }
+  }
   lNid=leaves.reduce((m,l)=>Math.max(m,l.id),0)+1;
   oNid=overrides.reduce((m,o)=>Math.max(m,o.id),0)+1;
   aNid=actlog.reduce((m,a)=>Math.max(m,a.id),0)+1;

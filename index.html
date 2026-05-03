@@ -1779,19 +1779,25 @@ async function changeCredentials(){
       if(nu&&nu!==uObj.username){
         // username change — check uniqueness
         if(users.some(x=>x.username.toLowerCase()===nu.toLowerCase()&&x.username!==uObj.username)){showMsg('settingsMsg','Username already taken.',false);return;}
+        // If this user holds the edit lock, update the lock's lockedBy to the new username
+        // so the next poll still recognises them as the holder (prevents ghost "other admin editing").
+        if(_isLockHolder && _lockInfo && _lockInfo.lockedBy===uObj.username){
+          _lockInfo.lockedBy=nu;
+          _lockInfo.displayName=uObj.displayName||nu;
+          // Write the updated lock to Drive so other sessions see the correct holder name
+          if(_gdriveReady) _gdriveWriteLock(_lockInfo).catch(e=>console.warn('Lock update after rename:',e));
+        }
         uObj.username=nu;currentUser=nu;
       }
       uObj.hash=await hashPass(np);
+      // Clear the force-change flag regardless of which path was used to change the password.
+      // This prevents a loop where the overlay appeared but Drive save failed, leaving the flag set.
+      uObj.mustChangePassword=false;
       saveUsersArray(users);
       actlog.push({id:aNid++,empId:'SYSTEM',name:currentUserDisplay,username:currentUser,displayName:currentUserDisplay,reqType:'System',action:'Credentials Updated',dateReq:iso(getToday()),admin:currentUser,actionDate:isoNow()});
       save();
-      // FIX: Force an immediate Drive save so the new credentials reach lms_data.json
-      // before the user exits. save() alone may be skipped if the lock isn't held,
-      // and it's fire-and-forget — a tab close right after save() can race the upload.
       if(_gdriveReady) await _gdriveSaveFile().catch(e=>console.warn('Drive save (changeCredentials) failed:',e));
       showMsg('settingsMsg','Credentials updated successfully.',true);
-      // SECURITY: Clear all credential fields immediately after save so they are
-      // not left readable on an unattended screen.
       _clearCredentialFields();
       return;
     }
@@ -2519,6 +2525,11 @@ const LOCK_POLL_MS=5*1000;         // poll every 5s — near-real-time lock + da
 const DATA_POLL_MS=5*1000;         // data refresh piggybacks lock poll
 const LOCK_ACTIVITY_DEBOUNCE_MS=20*1000; // renew on user activity at most once per 20s
 
+// A random token written into every lock this session creates.
+// When a poll finds a lock with lockedBy===currentUser but a DIFFERENT sessionToken,
+// that lock belongs to a prior crashed/closed session — treat it as orphaned and clear it.
+const _lockSessionToken=Math.random().toString(36).slice(2);
+
 let _lockRenewInterval=null;
 let _lockPollInterval=null;
 let _dataRefreshInterval=null;
@@ -2565,7 +2576,7 @@ async function takeLock(){
     }
   }
   const now=new Date();
-  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString()};
+  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString(),sessionToken:_lockSessionToken};
   // Atomic write — If-Match header prevents two clients from both succeeding simultaneously
   const result=await _gdriveWriteLock(lockObj);
   if(!result.ok){
@@ -2637,7 +2648,7 @@ async function _renewLockNow(){
   // Shared renewal logic — called by interval AND activity debounce
   if(!_isLockHolder) return;
   const now=new Date();
-  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:_lockInfo?_lockInfo.since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString()};
+  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:_lockInfo?_lockInfo.since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString(),sessionToken:_lockSessionToken};
   if(_gdriveReady){
     const result=await _gdriveWriteLock(lockObj);
     if(!result.ok){
@@ -2766,7 +2777,24 @@ async function _pollLock(){
   }
   _lockInfo=lockObj;
   if(lockObj.lockedBy===currentUser){
-    _isLockHolder=true;
+    // Check whether this lock was set by THIS browser session or a prior one.
+    // A mismatch means the previous session crashed without releasing — the lock is orphaned.
+    if(lockObj.sessionToken && lockObj.sessionToken!==_lockSessionToken){
+      // Orphaned lock from a previous session of this same user — clear it immediately.
+      // This is safe: the session that wrote it is gone, so nobody is actually editing.
+      _lockInfo=null;_isLockHolder=false;
+      if(_gdriveReady) _gdriveClearLock().catch(e=>console.warn('Orphaned lock clear:',e));
+      _updateLockBar(null);
+      document.body.classList.remove('readonly-mode');
+      _startDataRefreshInterval();
+      return;
+    }
+    // Lock belongs to this session — reclaim it fully (sets renewal interval if not already running)
+    if(!_isLockHolder){
+      // We weren't tracking as holder (e.g. after a silent token refresh) — re-establish
+      _isLockHolder=true;
+      _startRenewInterval();
+    }
     document.body.classList.remove('readonly-mode');
     _updateLockBar(lockObj);
     _stopDataRefreshInterval();

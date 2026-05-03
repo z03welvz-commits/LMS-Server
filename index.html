@@ -1136,6 +1136,19 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             <div id="gdriveStatusPanel" style="background:#F0F4FB;border-radius:8px;padding:10px 12px;font-size:10px;color:#5F5E5A;margin-bottom:10px;line-height:1.7">
               Loading Drive status…
             </div>
+            <!-- Folder name config -->
+            <div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div style="flex:1;min-width:160px">
+                <label style="font-size:9px;color:#5F5E5A;font-weight:500;display:block;margin-bottom:3px">Drive folder name <span style="font-weight:400;color:#9AA5BB">(leave blank to save in root)</span></label>
+                <div style="display:flex;gap:6px;align-items:center">
+                  <input type="text" id="gdriveFolderInput" placeholder="e.g. LMS Data"
+                    style="border:0.5px solid #B4B2A9;border-radius:6px;padding:4px 9px;font-size:11px;background:#fff;color:#2C2C2A;flex:1"
+                    value="">
+                  <button class="btn btn-ghost" onclick="applyDriveFolder()" style="font-size:10px;white-space:nowrap">Apply &amp; Reconnect</button>
+                </div>
+                <span style="font-size:9px;color:#888780;margin-top:2px;display:block">The folder will be created automatically if it doesn't exist. Reconnect Google Drive after changing.</span>
+              </div>
+            </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               <button class="btn btn-primary" onclick="gdriveSignIn()" id="gdriveSignInSettingsBtn" style="font-size:11px;display:none">
                 <svg width="13" height="13" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#fff"/></svg>
@@ -1417,6 +1430,14 @@ document.addEventListener('keydown',   _resetSessionTimer, {passive:true});
 // ── Google Drive state ───────────────────────────────────────────────────────
 let _gdriveToken      = null;  // OAuth access token
 let _gdriveFileId     = null;  // lms_data.json file ID on Drive
+let _gdriveFolderId   = null;  // target folder ID on Drive (null = Drive root)
+let _gdriveFolderName = null;  // display name of the target folder
+
+function _saveFolderId(id,name){ try{ localStorage.setItem('lms_gfolder_id',id||''); localStorage.setItem('lms_gfolder_name',name||''); }catch(e){} }
+function _loadFolderId(){ try{ return localStorage.getItem('lms_gfolder_id')||null; }catch(e){ return null; } }
+function _loadFolderName(){ try{ return localStorage.getItem('lms_gfolder_name')||null; }catch(e){ return null; } }
+function _getConfiguredFolderName(){ return (localStorage.getItem('lms_gfolder_config')||'').trim(); }
+function _setConfiguredFolderName(n){ try{ localStorage.setItem('lms_gfolder_config',n||''); }catch(e){} }
 let _gdriveReady      = false; // true when token + file ID known
 let _gdriveAccountEmail = '';
 
@@ -1854,6 +1875,7 @@ function switchSettingsTab(tab,btn){
   if(tab==='storage'){
     _gdriveUpdateSettingsUI();
     updateStorageIndicator(_gdriveReady?'file':'local');
+    _populateDriveFolderInput();
   }
   if(tab==='profile'){
     const prof=getAdminProfile();
@@ -1941,13 +1963,46 @@ async function _gfetch(url, opts={}){
   return r;
 }
 
+// ── Find or create a named folder on Drive ───────────────────────────────────
+async function _gdriveResolveFolder(){
+  const folderName = _getConfiguredFolderName();
+  if(!folderName){ _gdriveFolderId=null; _gdriveFolderName=null; return; } // use root
+  // Search for existing folder
+  const q = encodeURIComponent(`name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const r = await _gfetch(`${GDRIVE_API}/files?q=${q}&fields=files(id,name)&spaces=drive`);
+  const d = await r.json();
+  if(d.files && d.files.length > 0){
+    _gdriveFolderId  = d.files[0].id;
+    _gdriveFolderName= d.files[0].name;
+    _saveFolderId(_gdriveFolderId, _gdriveFolderName);
+    return;
+  }
+  // Folder not found — create it
+  _gdriveSetMsg(`Creating folder "${folderName}" on Drive…`,'');
+  const meta = { name: folderName, mimeType:'application/vnd.google-apps.folder' };
+  const cr = await _gfetch(`${GDRIVE_API}/files?fields=id,name`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(meta)
+  });
+  const cd = await cr.json();
+  _gdriveFolderId  = cd.id;
+  _gdriveFolderName= cd.name;
+  _saveFolderId(_gdriveFolderId, _gdriveFolderName);
+}
+
 // ── Find or create lms_data.json on Drive ────────────────────────────────────
 async function _gdriveInitFile(){
   _gdriveSetMsg('Connecting to Google Drive…','');
   _credentialsFromFile = true; // token confirmed — allow login even before file loads
-  // Search for existing file
-  const q = encodeURIComponent(`name='${GDRIVE_FILE_NAME}' and trashed=false and mimeType='application/json'`);
-  const r = await _gfetch(`${GDRIVE_API}/files?q=${q}&fields=files(id,name,modifiedTime)&spaces=drive`);
+  // Resolve target folder (if configured)
+  _gdriveFolderId  = _loadFolderId();
+  _gdriveFolderName= _loadFolderName();
+  await _gdriveResolveFolder();
+  // Build search query scoped to folder (or root)
+  let q = `name='${GDRIVE_FILE_NAME}' and trashed=false and mimeType='application/json'`;
+  if(_gdriveFolderId) q += ` and '${_gdriveFolderId}' in parents`;
+  const r = await _gfetch(`${GDRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&spaces=drive`);
   const data = await r.json();
   if(data.files && data.files.length > 0){
     _gdriveFileId = data.files[0].id;
@@ -1972,7 +2027,7 @@ async function _gdriveCreateFile(){
   _lmsUsersOverride = [adminUser];
   localStorage.setItem('lms7_users', JSON.stringify([adminUser]));
 
-  const meta = { name: GDRIVE_FILE_NAME, mimeType:'application/json' };
+  const meta = { name: GDRIVE_FILE_NAME, mimeType:'application/json', ..._gdriveFolderId?{parents:[_gdriveFolderId]}:{} };
   const blank = getAllData();
   const body  = JSON.stringify(blank, null, 2);
   const form  = new FormData();
@@ -2129,8 +2184,9 @@ function _gdriveUpdateSettingsUI(){
   const signOutBtn  = document.getElementById('gdriveSignOutBtn');
   const forceSaveBtn= document.getElementById('gdriveForceSaveBtn');
   if(_gdriveReady){
+    const folderLabel=_gdriveFolderName?`📁 ${_gdriveFolderName} / `:'📁 My Drive / ';
     if(statusPanel) statusPanel.innerHTML=`<span style="color:#085041;font-weight:600">✓ Google Drive connected</span><br>
-      File: <code style="background:#fff;padding:1px 5px;border-radius:3px;border:0.5px solid #D3D1C7">${GDRIVE_FILE_NAME}</code> &nbsp;·&nbsp;
+      Location: <code style="background:#fff;padding:1px 5px;border-radius:3px;border:0.5px solid #D3D1C7">${folderLabel}${GDRIVE_FILE_NAME}</code><br>
       File ID: <code style="font-size:9px;color:#888780">${_gdriveFileId||'—'}</code><br>
       Auto-save is ON. All changes sync to Drive within seconds. Daily backups are created automatically.`;
     if(signInBtn)  signInBtn.style.display='none';
@@ -2170,6 +2226,25 @@ async function _gdriveAutoRestore(){
       await _gdriveInitFile();
     }
   }catch(e){ _gdriveToken=null; _clearToken(); _gdriveUpdateLoginUI(); }
+}
+
+// ── Folder config helper ─────────────────────────────────────────────────────
+function applyDriveFolder(){
+  const name=(document.getElementById('gdriveFolderInput').value||'').trim();
+  _setConfiguredFolderName(name);
+  // Clear cached folder/file IDs so the next connect re-resolves into the new folder
+  _gdriveFolderId=null; _gdriveFolderName=null; _gdriveFileId=null;
+  _saveFolderId('','');
+  localStorage.removeItem('lms_gfile');
+  _gdriveSetMsg(name?`Folder set to "${name}". Click Connect Google Drive to apply.`:'Folder cleared — will use Drive root on next connect.','ok');
+  // If already connected, re-init immediately
+  if(_gdriveReady){ gdriveSignOut(); setTimeout(()=>gdriveSignIn(),600); }
+}
+
+// Populate folder input when storage tab opens
+function _populateDriveFolderInput(){
+  const inp=document.getElementById('gdriveFolderInput');
+  if(inp) inp.value=_getConfiguredFolderName();
 }
 
 // ── Shim: keep old FS API calls working (no-ops or redirects) ─────────────────

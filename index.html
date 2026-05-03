@@ -1732,6 +1732,13 @@ function _launchApp(){
   initApp();
   initLockSystem();
   _resetSessionTimer();
+  // If Drive is connected, always do a fresh load from the file right after login
+  // so the user sees the latest saved data — not stale localStorage.
+  if(_gdriveReady && _gdriveFileId){
+    _gdriveLoadFile().then(()=>{
+      buildDropdowns();renderHome();renderEmpTable();renderLeaveLog();renderOvrTable();renderPendingRequests();renderActivity();
+    }).catch(e=>console.warn('Post-login Drive load:',e));
+  }
   // Show Drive connected banner
   setTimeout(()=>{
     if(_gdriveReady){
@@ -1937,9 +1944,22 @@ function saveProfile(){
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── Token persistence ────────────────────────────────────────────────────────
-function _saveToken(token){ try{ sessionStorage.setItem('lms_gtoken', JSON.stringify(token)); }catch(e){} }
-function _loadToken(){ try{ return JSON.parse(sessionStorage.getItem('lms_gtoken')||'null'); }catch(e){ return null; } }
-function _clearToken(){ try{ sessionStorage.removeItem('lms_gtoken'); }catch(e){} }
+function _saveToken(token){
+  // Use localStorage so the token survives browser restarts.
+  // The token expires in ~1h but _gdriveAutoRestore validates it on load and
+  // silently refreshes or prompts re-auth if it's expired.
+  try{ localStorage.setItem('lms_gtoken', JSON.stringify({...token, savedAt:Date.now()})); }catch(e){}
+}
+function _loadToken(){
+  try{
+    const raw=JSON.parse(localStorage.getItem('lms_gtoken')||'null');
+    if(!raw)return null;
+    // Tokens last ~1 hour — if older than 55 min, return it anyway and let
+    // _gdriveAutoRestore validate it. A 401 will trigger silent refresh.
+    return raw;
+  }catch(e){ return null; }
+}
+function _clearToken(){ try{ localStorage.removeItem('lms_gtoken'); }catch(e){} }
 
 // ── File ID persistence ──────────────────────────────────────────────────────
 function _saveFileId(id){ try{ localStorage.setItem('lms_gfile', id); }catch(e){} }

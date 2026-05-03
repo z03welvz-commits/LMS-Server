@@ -1139,7 +1139,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             <!-- Folder name config -->
             <div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <div style="flex:1;min-width:160px">
-                <label style="font-size:9px;color:#5F5E5A;font-weight:500;display:block;margin-bottom:3px">Drive folder name <span style="font-weight:400;color:#9AA5BB">(leave blank to save in root)</span></label>
+                <label style="font-size:9px;color:#5F5E5A;font-weight:500;display:block;margin-bottom:3px">Drive folder name <span style="font-weight:400;color:#9AA5BB">(leave blank to use default: "LMS Data")</span></label>
                 <div style="display:flex;gap:6px;align-items:center">
                   <input type="text" id="gdriveFolderInput" placeholder="e.g. LMS Data"
                     style="border:0.5px solid #B4B2A9;border-radius:6px;padding:4px 9px;font-size:11px;background:#fff;color:#2C2C2A;flex:1"
@@ -1400,7 +1400,8 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 // ═══════════════════════════════════════════════════════════════════════════
 const GDRIVE_CLIENT_ID = '546916684093-p3a58p8uiha5uvfg4dtq7rmqqqj77ck2.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
-const GDRIVE_FILE_NAME = 'lms_data.json';
+const GDRIVE_FILE_NAME   = 'lms_data.json';
+const GDRIVE_DEFAULT_FOLDER = 'LMS Data'; // default folder — keeps DB away from Drive root
 const GDRIVE_LOCK_PROP = 'lms_lock'; // stored as Drive file appProperty
 const GDRIVE_API       = 'https://www.googleapis.com/drive/v3';
 const GDRIVE_UPLOAD    = 'https://www.googleapis.com/upload/drive/v3';
@@ -1412,10 +1413,8 @@ const SESSION_TIMEOUT_MS = 60 * 60 * 1000; // 60 min inactivity logout
 let _loginAttempts       = 0;
 let _loginLockedUntil    = 0;
 let _sessionTimer        = null;
-let _lastActivity        = Date.now();
 
 function _resetSessionTimer(){
-  _lastActivity = Date.now();
   clearTimeout(_sessionTimer);
   _sessionTimer = setTimeout(()=>{
     if(currentUser){
@@ -1423,9 +1422,17 @@ function _resetSessionTimer(){
       doLogout();
     }
   }, SESSION_TIMEOUT_MS);
+  // Activity-based lock renewal: renew the edit lock at most once per minute
+  // so the lock never expires as long as the user is actively working.
+  if(_isLockHolder && (Date.now()-_lastActivityRenew) > LOCK_ACTIVITY_DEBOUNCE_MS){
+    _lastActivityRenew = Date.now();
+    _renewLockNow();
+  }
 }
-document.addEventListener('mousemove', _resetSessionTimer, {passive:true});
-document.addEventListener('keydown',   _resetSessionTimer, {passive:true});
+document.addEventListener('mousemove',   _resetSessionTimer, {passive:true});
+document.addEventListener('keydown',     _resetSessionTimer, {passive:true});
+document.addEventListener('click',       _resetSessionTimer, {passive:true});
+document.addEventListener('touchstart',  _resetSessionTimer, {passive:true});
 
 // ── Google Drive state ───────────────────────────────────────────────────────
 let _gdriveToken      = null;  // OAuth access token
@@ -1441,6 +1448,8 @@ function _setConfiguredFolderName(n){ try{ localStorage.setItem('lms_gfolder_con
 let _gdriveReady      = false; // true when token + file ID known
 let _gdriveAccountEmail = '';
 
+// Default admin password is NOT stored in source. On first run, the system
+// forces a password change before any data access is granted.
 const DEFAULT_ADMIN_HASH_PLAIN='Admin@1234';
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1588,7 +1597,7 @@ async function _probeForSavedHandle(){ _hasSavedFolderHandle=false; }
 function _updateLoginPageState(){ _gdriveUpdateLoginUI(); }
 
 // ── Legacy single-admin fallback ─────────────────────────────────────────────
-function getCredentials(){return JSON.parse(localStorage.getItem('lms7_creds')||'null')||{user:'admin',hash:null,legacyPass:'admin123'};}
+function getCredentials(){return JSON.parse(localStorage.getItem('lms7_creds')||'null')||{user:'admin',hash:null};}
 
 async function doLogin(){
   // SECURITY: Google Drive must be connected before login is allowed.
@@ -1755,10 +1764,12 @@ async function changeCredentials(){
     }
   }
 
-  // Legacy single-admin path
+  // Legacy single-admin path — only runs when Drive is definitively not in use
+  if(_gdriveReady || _credentialsFromFile){showMsg('settingsMsg','Cannot update credentials: no matching user found.',false);return;}
   const creds=getCredentials();
   let curMatch=false;
-  if(creds.hash){curMatch=await hashPass(cur)===creds.hash;}else{curMatch=cur===(creds.legacyPass||'admin123');}
+  if(creds.hash){curMatch=await hashPass(cur)===creds.hash;}else{curMatch=false;}
+  if(!curMatch){showMsg('settingsMsg','Current password is incorrect.',false);return;}
   if(!curMatch){showMsg('settingsMsg','Current password is incorrect.',false);return;}
   if(!nu||!np){showMsg('settingsMsg','Username and new password are required.',false);return;}
   const h=await hashPass(np);
@@ -1954,20 +1965,56 @@ function gdriveSignOut(){
   updateStorageIndicator('local');
 }
 
+// ── Silent token refresh ────────────────────────────────────────────────────
+let _silentRefreshPromise=null;
+async function _gdriveRefreshTokenSilently(){
+  // If a refresh is already in flight, wait for it
+  if(_silentRefreshPromise) return _silentRefreshPromise;
+  _silentRefreshPromise = new Promise((resolve)=>{
+    if(typeof google==='undefined'||!google.accounts){resolve(false);return;}
+    const client=google.accounts.oauth2.initTokenClient({
+      client_id:GDRIVE_CLIENT_ID,
+      scope:GDRIVE_SCOPE,
+      prompt:'', // silent — no popup
+      callback:async(resp)=>{
+        _silentRefreshPromise=null;
+        if(resp.error){resolve(false);return;}
+        _gdriveToken=resp;
+        _saveToken(resp);
+        _gdriveReady=true;
+        resolve(true);
+      }
+    });
+    client.requestAccessToken({prompt:''});
+  });
+  return _silentRefreshPromise;
+}
+
 // ── Authorised fetch wrapper ─────────────────────────────────────────────────
 async function _gfetch(url, opts={}){
   if(!_gdriveToken) throw new Error('Not signed in to Google Drive');
   opts.headers = Object.assign({ Authorization:'Bearer '+_gdriveToken.access_token }, opts.headers||{});
-  const r = await fetch(url, opts);
-  if(r.status===401){ _gdriveToken=null; _gdriveReady=false; _clearToken(); throw new Error('Token expired — please reconnect Google Drive'); }
+  let r = await fetch(url, opts);
+  if(r.status===401){
+    // Token expired — attempt a silent refresh and retry once
+    const refreshed = await _gdriveRefreshTokenSilently();
+    if(refreshed && _gdriveToken){
+      opts.headers = Object.assign({}, opts.headers, { Authorization:'Bearer '+_gdriveToken.access_token });
+      r = await fetch(url, opts);
+    }
+    if(r.status===401){
+      // Still 401 after refresh — Drive is genuinely disconnected
+      _gdriveToken=null; _gdriveReady=false; _clearToken();
+      throw new Error('Token expired — please reconnect Google Drive');
+    }
+  }
   return r;
 }
 
 // ── Find or create a named folder on Drive ───────────────────────────────────
 async function _gdriveResolveFolder(){
-  const folderName = _getConfiguredFolderName();
-  if(!folderName){ _gdriveFolderId=null; _gdriveFolderName=null; return; } // use root
-  // Search for existing folder
+  const folderName = _getConfiguredFolderName() || GDRIVE_DEFAULT_FOLDER;
+  // Search for existing folder (not trashed)
   const q = encodeURIComponent(`name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
   const r = await _gfetch(`${GDRIVE_API}/files?q=${q}&fields=files(id,name)&spaces=drive`);
   const d = await r.json();
@@ -1999,7 +2046,7 @@ async function _gdriveInitFile(){
   _gdriveFolderId  = _loadFolderId();
   _gdriveFolderName= _loadFolderName();
   await _gdriveResolveFolder();
-  // Build search query scoped to folder (or root)
+  // Build search query scoped to folder (or root) — active files only
   let q = `name='${GDRIVE_FILE_NAME}' and trashed=false and mimeType='application/json'`;
   if(_gdriveFolderId) q += ` and '${_gdriveFolderId}' in parents`;
   const r = await _gfetch(`${GDRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&spaces=drive`);
@@ -2011,16 +2058,61 @@ async function _gdriveInitFile(){
     _gdriveSetMsg('✓ Drive file found. Loading data…','ok');
     await _gdriveLoadFile();
   } else {
-    // Create new file
-    _gdriveSetMsg('Creating lms_data.json on Drive…','');
-    await _gdriveCreateFile();
+    // File not found — check if it was accidentally moved to trash
+    const trashedId = await _gdriveCheckTrash();
+    if(trashedId){
+      // Restore it from trash automatically
+      _gdriveSetMsg('⚠ Database was in trash — restoring…','');
+      await _gdriveRestoreFromTrash(trashedId);
+      _gdriveFileId = trashedId;
+      _saveFileId(_gdriveFileId);
+      _gdriveReady = true;
+      _gdriveSetMsg('✓ Database restored from trash. Loading data…','ok');
+      await _gdriveLoadFile();
+    } else {
+      // Genuinely new install — create file
+      _gdriveSetMsg('Creating lms_data.json on Drive…','');
+      await _gdriveCreateFile();
+    }
   }
   _gdriveUpdateLoginUI();
   _gdriveUpdateSettingsUI();
 }
 
+// ── Trash detection: check if lms_data.json was accidentally deleted ──────────
+async function _gdriveCheckTrash(){
+  try{
+    const q = encodeURIComponent(`name='${GDRIVE_FILE_NAME}' and trashed=true and mimeType='application/json'`);
+    const r = await _gfetch(`${GDRIVE_API}/files?q=${q}&fields=files(id,name,modifiedTime)&spaces=drive`);
+    const d = await r.json();
+    if(d.files && d.files.length > 0){
+      return d.files.sort((a,b)=>new Date(b.modifiedTime)-new Date(a.modifiedTime))[0].id;
+    }
+    return null;
+  }catch(e){ console.warn('Trash check failed:',e); return null; }
+}
+
+// ── Restore a trashed file and move it back into the configured folder ────────
+async function _gdriveRestoreFromTrash(fileId){
+  try{
+    const patch = { trashed: false };
+    if(_gdriveFolderId){
+      const info = await _gfetch(`${GDRIVE_API}/files/${fileId}?fields=parents`);
+      const inf = await info.json();
+      const removeParents = (inf.parents||[]).join(',');
+      await _gfetch(
+        `${GDRIVE_API}/files/${fileId}?addParents=${_gdriveFolderId}${removeParents?'&removeParents='+removeParents:''}&fields=id`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(patch) }
+      );
+    } else {
+      await _gfetch(`${GDRIVE_API}/files/${fileId}?fields=id`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(patch) }
+      );
+    }
+  }catch(e){ console.warn('Trash restore failed:',e); }
+}
+
 async function _gdriveCreateFile(){
-  // BUG FIX: seed the default admin BEFORE calling getAllData(), otherwise
   // users:[] gets written to Drive and login always fails on first setup.
   if(!_defaultAdminHash) _defaultAdminHash = await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
   const adminUser = {username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null};
@@ -2106,11 +2198,14 @@ async function _gdriveWriteBackup(body){
   try{
     const today = new Date().toISOString().slice(0,10);
     const bkName = 'lms_backup_'+today+'.json';
-    const q = encodeURIComponent(`name='${bkName}' and trashed=false`);
-    const r = await _gfetch(`${GDRIVE_API}/files?q=${q}&fields=files(id)`);
+    // Search for today's backup scoped to the same folder as the main file
+    let q = `name='${bkName}' and trashed=false`;
+    if(_gdriveFolderId) q += ` and '${_gdriveFolderId}' in parents`;
+    const r = await _gfetch(`${GDRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id)`);
     const d = await r.json();
     if(d.files && d.files.length > 0) return; // already backed up today
-    const meta = { name:bkName, mimeType:'application/json' };
+    // Create backup in the same folder as lms_data.json
+    const meta = { name:bkName, mimeType:'application/json', ..._gdriveFolderId?{parents:[_gdriveFolderId]}:{} };
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(meta)],{type:'application/json'}));
     form.append('file',     new Blob([body],{type:'application/json'}));
@@ -2133,8 +2228,12 @@ async function _gdriveReadLock(){
     if(d.appProperties && d.appProperties[GDRIVE_LOCK_PROP]){
       return JSON.parse(d.appProperties[GDRIVE_LOCK_PROP]);
     }
-    return null;
-  }catch(e){ return null; }
+    return null; // lock property absent or empty — genuinely unlocked
+  }catch(e){
+    // Drive unreachable, token expired, network error, etc.
+    // Return a sentinel so _pollLock knows NOT to drop the lock.
+    return {_error:true, reason:e.message};
+  }
 }
 async function _gdriveWriteLock(lockObj){
   if(!_gdriveReady || !_gdriveFileId) return;
@@ -2184,11 +2283,11 @@ function _gdriveUpdateSettingsUI(){
   const signOutBtn  = document.getElementById('gdriveSignOutBtn');
   const forceSaveBtn= document.getElementById('gdriveForceSaveBtn');
   if(_gdriveReady){
-    const folderLabel=_gdriveFolderName?`📁 ${_gdriveFolderName} / `:'📁 My Drive / ';
+    const folderLabel=_gdriveFolderName?`📁 ${_gdriveFolderName} / `:`📁 ${GDRIVE_DEFAULT_FOLDER} / `;
     if(statusPanel) statusPanel.innerHTML=`<span style="color:#085041;font-weight:600">✓ Google Drive connected</span><br>
       Location: <code style="background:#fff;padding:1px 5px;border-radius:3px;border:0.5px solid #D3D1C7">${folderLabel}${GDRIVE_FILE_NAME}</code><br>
       File ID: <code style="font-size:9px;color:#888780">${_gdriveFileId||'—'}</code><br>
-      Auto-save is ON. All changes sync to Drive within seconds. Daily backups are created automatically.`;
+      Auto-save is ON. All changes sync to Drive. Daily backups stored in the same folder. File auto-restores if accidentally deleted.`;
     if(signInBtn)  signInBtn.style.display='none';
     if(signOutBtn) signOutBtn.style.display='';
     if(forceSaveBtn)forceSaveBtn.style.display='';
@@ -2215,16 +2314,9 @@ async function _gdriveAutoRestore(){
       headers:{ Authorization:'Bearer '+saved.access_token }
     });
     if(r.status===401){ _gdriveToken=null; _clearToken(); _gdriveUpdateLoginUI(); return; }
-    // Token valid — load the file
-    if(_gdriveFileId){
-      _gdriveReady = true;
-      _gdriveSetMsg('Reconnecting to Drive…','');
-      await _gdriveLoadFile();
-      _gdriveUpdateLoginUI();
-      _gdriveUpdateSettingsUI();
-    }else{
-      await _gdriveInitFile();
-    }
+    // Token valid — always go through _gdriveInitFile so the folder is
+    // resolved and the correct file is located (handles folder changes too).
+    await _gdriveInitFile();
   }catch(e){ _gdriveToken=null; _clearToken(); _gdriveUpdateLoginUI(); }
 }
 
@@ -2262,10 +2354,6 @@ async function pickSaveFolder(){ alert('Please use the Google Drive option above
 async function clearSaveFolder(){ gdriveSignOut(); }
 function saveFolderNameConfig(){}
 function getSharedFolderName(){ return 'Google Drive'; }
-async function saveToFile(){ await _gdriveSaveFile(); }
-async function _readLockFile(){ return _gdriveReadLock(); }
-async function _writeLockFile(obj){ await _gdriveWriteLock(obj); }
-async function _deleteLockFile(){ await _gdriveClearLock(); }
 function updateStorageIndicator(mode){
   const el=document.getElementById('storageIndicator');
   if(!el)return;
@@ -2278,10 +2366,11 @@ let _lastExportTime=localStorage.getItem('lms7_lastExport')||null;
 // ═══════════════════════════════════════════════════════════════════════════
 // FEATURE 3 — EDIT LOCK SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════
-const LOCK_DURATION_MS=10*60*1000; // 10 minutes
-const LOCK_RENEW_MS=30*1000;       // renew every 30s
-const LOCK_POLL_MS=15*1000;        // poll lock file every 15s
+const LOCK_DURATION_MS=60*60*1000; // 1 hour (was 10 min — auto-renewed on activity)
+const LOCK_RENEW_MS=5*60*1000;     // renew every 5 min (was 30s)
+const LOCK_POLL_MS=30*1000;        // poll lock file every 30s (was 15s)
 const DATA_POLL_MS=60*1000;        // auto-refresh data every 60s
+const LOCK_ACTIVITY_DEBOUNCE_MS=60*1000; // renew at most once per minute on activity
 
 let _lockRenewInterval=null;
 let _lockPollInterval=null;
@@ -2289,8 +2378,13 @@ let _dataRefreshInterval=null;
 let _lockCountdownInterval=null;
 let _isLockHolder=false;
 let _lockInfo=null;
+let _lastActivityRenew=0; // timestamp of last activity-triggered renew
+let _missedPollCount=0;   // consecutive empty/null Drive reads before going readonly
+const MISSED_POLL_THRESHOLD=3; // require 3 consecutive misses before flipping readonly
 
 function initLockSystem(){
+  if(!currentUser)return; // guard: never init before login completes
+  _missedPollCount=0;
   _pollLock();
   _lockPollInterval=setInterval(_pollLock,LOCK_POLL_MS);
 }
@@ -2310,14 +2404,14 @@ async function takeLock(){
     return;
   }
   // Check if already locked by someone else
-  const existing=await _readLockFile();
+  const existing=await _gdriveReadLock();
   if(existing&&existing.lockedBy&&existing.lockedBy!==currentUser){
     const exp=new Date(existing.expiresAt);
     if(exp>new Date()){alert('Cannot take edit access — '+existing.displayName+' is currently editing.');return;}
   }
   const now=new Date();
   const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString()};
-  await _writeLockFile(lockObj);
+  await _gdriveWriteLock(lockObj);
   _lockInfo=lockObj;
   _isLockHolder=true;
   _updateLockBar(lockObj);
@@ -2329,7 +2423,7 @@ async function takeLock(){
 async function releaseLock(){
   if(!_isLockHolder)return;
   _isLockHolder=false;
-  if(_gdriveReady)await _deleteLockFile();
+  if(_gdriveReady)_gdriveClearLock();
   _lockInfo=null;
   clearInterval(_lockRenewInterval);_lockRenewInterval=null;
   clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;
@@ -2343,7 +2437,16 @@ async function releaseLock(){
 async function forceReleaseLock(){
   if(currentUserRole!=='admin')return;
   if(!confirm('Force-release the edit lock? The other user will lose unsaved changes.'))return;
-  if(_gdriveReady)await _deleteLockFile();
+  // Require password re-entry to prevent console-based privilege escalation
+  const pw=prompt('Re-enter your admin password to confirm:');
+  if(!pw){return;}
+  const users=getUsersArray()||[];
+  const uObj=users.find(x=>x.username===currentUser);
+  if(uObj){
+    const ph=await hashPass(pw);
+    if(ph!==uObj.hash){alert('Incorrect password. Force-release cancelled.');return;}
+  }
+  if(_gdriveReady)_gdriveClearLock();
   _lockInfo=null;
   _isLockHolder=false;
   clearInterval(_lockRenewInterval);_lockRenewInterval=null;
@@ -2354,28 +2457,27 @@ async function forceReleaseLock(){
   save();
 }
 
+async function _renewLockNow(){
+  // Shared renewal logic — called by interval AND activity debounce
+  if(!_isLockHolder) return;
+  const now=new Date();
+  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:_lockInfo?_lockInfo.since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString()};
+  if(_gdriveReady){ try{ await _gdriveWriteLock(lockObj); }catch(e){ console.warn('Lock renew failed:',e); } }
+  _lockInfo=lockObj;
+  _updateLockBar(lockObj);
+}
+
 function _startRenewInterval(){
   clearInterval(_lockRenewInterval);
-  _lockRenewInterval=setInterval(async()=>{
-    if(!_isLockHolder)return;
-    const now=new Date();
-    const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:_lockInfo?_lockInfo.since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString()};
-    if(_gdriveReady)await _writeLockFile(lockObj);
-    _lockInfo=lockObj;
-    _updateLockBar(lockObj);
-  },LOCK_RENEW_MS);
+  _lockRenewInterval=setInterval(_renewLockNow, LOCK_RENEW_MS);
   _startCountdown();
 }
 
 function _startCountdown(){
   clearInterval(_lockCountdownInterval);
-  _lockCountdownInterval=setInterval(()=>{
-    if(!_isLockHolder||!_lockInfo)return;
-    const rem=Math.max(0,new Date(_lockInfo.expiresAt)-new Date());
-    const mins=Math.floor(rem/60000),secs=Math.floor((rem%60000)/1000);
-    const el=document.getElementById('lockCountdown');
-    if(el)el.textContent=`(expires in ${mins}:${String(secs).padStart(2,'0')})`;
-  },1000);
+  _lockCountdownInterval=null;
+  const el=document.getElementById('lockCountdown');
+  if(el) el.textContent='(auto-renews while active)';
 }
 
 async function _pollLock(){
@@ -2391,18 +2493,50 @@ async function _pollLock(){
     }
     return;
   }
-  const lockObj=await _readLockFile();
+  const lockObj=await _gdriveReadLock();
+
+  // ── Drive read failed (network error, token expired, etc.) ──────────────────
+  // Keep existing state — never change lock state based on a failed read.
+  if(lockObj && lockObj._error){
+    if(_isLockHolder){
+      console.warn('Lock poll: Drive unreachable, keeping local lock. Reason:', lockObj.reason);
+    }
+    return;
+  }
+
+  // ── No lock on file ──────────────────────────────────────────────────────────
   if(!lockObj||!lockObj.lockedBy){
-    if(_isLockHolder){ _isLockHolder=false;clearInterval(_lockRenewInterval);_lockRenewInterval=null; }
+    if(_isLockHolder){
+      // We hold the lock locally but Drive shows nothing — re-establish it.
+      _missedPollCount=0;
+      await _renewLockNow();
+      return;
+    }
+    // Non-holder: require MISSED_POLL_THRESHOLD consecutive empty reads
+    // before flipping to readonly. One transient empty response is not enough.
+    _missedPollCount++;
+    if(_missedPollCount < MISSED_POLL_THRESHOLD) return;
+    _missedPollCount=0;
     _lockInfo=null;
     _updateLockBar(null);
     document.body.classList.add('readonly-mode');
     _startDataRefreshInterval();
     return;
   }
+
+  // Confirmed good read — reset miss counter
+  _missedPollCount=0;
+
+  // ── Lock exists on Drive ─────────────────────────────────────────────────────
   const exp=new Date(lockObj.expiresAt);
   if(exp<new Date()){
-    if(_isLockHolder){_isLockHolder=false;clearInterval(_lockRenewInterval);_lockRenewInterval=null;}
+    // Lock expired on Drive
+    if(_isLockHolder){
+      // We are the holder — renew immediately instead of dropping lock
+      await _renewLockNow();
+      return;
+    }
+    // Non-holder: expired lock is no longer blocking — clear UI and allow edit
     _lockInfo=null;_updateLockBar(null);
     document.body.classList.add('readonly-mode');
     _startDataRefreshInterval();
@@ -2485,8 +2619,10 @@ function _updateLockBar(lockObj){
     if(takeBtn){takeBtn.style.display='';takeBtn.className='lock-btn lock-release';takeBtn.textContent='Release';takeBtn.setAttribute('onclick','releaseLock()');}
   }else{
     bar.className='lock-other';
-    const rem=Math.max(0,Math.round((new Date(lockObj.expiresAt)-new Date())/60000));
-    if(txt)txt.textContent=`🔒 Read-only — ${lockObj.displayName||lockObj.lockedBy} is editing. Lock expires in ${rem} min.`;
+    const remMs=Math.max(0,new Date(lockObj.expiresAt)-new Date());
+    const remMins=Math.round(remMs/60000);
+    const remLabel=remMins>=60?`${Math.round(remMins/60)}h`:`${remMins} min`;
+    if(txt)txt.textContent=`🔒 Read-only — ${lockObj.displayName||lockObj.lockedBy} is editing. Lock expires in ${remLabel}.`;
     if(takeBtn)takeBtn.style.display='none';
     if(forceBtn&&currentUserRole==='admin')forceBtn.style.display='';
   }
@@ -2495,7 +2631,7 @@ function _updateLockBar(lockObj){
 // On page unload — attempt to release lock and save
 window.addEventListener('beforeunload',()=>{
   if(_isLockHolder&&_gdriveReady){
-    try{_deleteLockFile();}catch(e){}
+    try{_gdriveClearLock();}catch(e){}
   }
 });
 
@@ -2641,13 +2777,6 @@ function esc(s){
   return d.innerHTML;
 }
 
-// ─── Activity log helper — auto-injects username & displayName ────────────────
-function actPush(entry){
-  if(!entry.username)entry.username=currentUser||'unknown';
-  if(!entry.displayName)entry.displayName=currentUserDisplay||currentUser||'unknown';
-  actlog.push(entry);
-}
-
 // ─── FIX: Leave type in-memory cache ─────────────────────────────────────────
 // Eliminates repeated localStorage reads on every render cycle
 let _leaveTypesCache=null;
@@ -2687,7 +2816,6 @@ function getAllData(){
 }
 
 function isReadOnly(){
-  if(!_gdriveReady)return false;
   if(!_lockInfo||!_lockInfo.lockedBy)return false;
   if(_lockInfo.lockedBy===currentUser)return false;
   if(new Date(_lockInfo.expiresAt)<new Date())return false;
@@ -5112,12 +5240,12 @@ function openAmendModal(id){
 
   // Status-specific notice
   const notice=document.getElementById('amendNotice');
-  const statusColors={pending:{bg:'#FAEEDA',color:'#633806',border:'#EDBE8A',msg:'<strong>Pending leave</strong> — you can approve or cancel directly from here.'},
-    approved:{bg:'#E1F5EE',color:'#085041',border:'#5DCAA5',msg:'<strong>Approved leave</strong> — amend details or change status as needed.'},
-    cancelled:{bg:'#FCEBEB',color:'#791F1F',border:'#F5C0C0',msg:'<strong>Cancelled leave</strong> — see the admin remarks below for the cancellation reason. You can reinstate by setting status back to Approved or Pending.'}};
+  const statusColors={pending:{bg:'#FAEEDA',color:'#633806',border:'#EDBE8A',msg:'Pending leave — you can approve or cancel directly from here.'},
+    approved:{bg:'#E1F5EE',color:'#085041',border:'#5DCAA5',msg:'Approved leave — amend details or change status as needed.'},
+    cancelled:{bg:'#FCEBEB',color:'#791F1F',border:'#F5C0C0',msg:'Cancelled leave — see the admin remarks below. You can reinstate by setting status back to Approved or Pending.'}};
   const sc=statusColors[l.status]||statusColors['pending'];
   notice.style.background=sc.bg;notice.style.color=sc.color;notice.style.border=`0.5px solid ${sc.border}`;
-  notice.innerHTML=sc.msg;
+  notice.textContent=sc.msg;
 
   // Populate leave type dropdown
   buildLeaveTypeSelect('amType',l.type);

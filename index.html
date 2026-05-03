@@ -347,10 +347,49 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
     <div class="login-field"><label>Password</label><input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="login-btn" id="loginSubmitBtn" onclick="doLogin()" disabled style="opacity:0.45;cursor:not-allowed">Sign in</button>
     <div class="login-err" id="loginErr">Incorrect username or password.</div>
-    <div style="margin-top:12px;text-align:center">
-      <button onclick="emergencyResetAdmin()" style="background:none;border:none;font-size:9px;color:#888780;cursor:pointer;text-decoration:underline;padding:2px 4px" title="Use only if you cannot log in">Can't log in? Reset admin password</button>
+    <div style="margin-top:10px;text-align:center">
+      <button onclick="openForgotPassword()" style="background:none;border:none;font-size:9px;color:#888780;cursor:pointer;text-decoration:underline;padding:2px 4px">Forgot password?</button>
     </div>
-    <div id="resetAdminMsg" style="font-size:10px;margin-top:6px;text-align:center;display:none"></div>
+  </div>
+</div>
+
+<!-- ═══ FORGOT PASSWORD MODAL ═══ -->
+<div id="forgotPwModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:28px 32px;width:340px;max-width:94vw;box-shadow:0 8px 32px rgba(0,0,0,.22)">
+    <!-- Step 1: Enter username -->
+    <div id="fpStep1">
+      <div style="font-size:14px;font-weight:700;color:#1B3A6B;margin-bottom:4px">🔑 Forgot Password</div>
+      <div style="font-size:10px;color:#888780;margin-bottom:18px">Enter your admin username. A recovery email must be registered on your account to proceed.</div>
+      <div class="login-field"><label>Admin username</label><input type="text" id="fpUsername" placeholder="username" autocomplete="off" onkeydown="if(event.key==='Enter')fpCheckUsername()"></div>
+      <div id="fpStep1Err" style="font-size:10px;color:#A32D2D;background:#FCEBEB;border-radius:5px;padding:5px 9px;margin-top:6px;display:none"></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="login-btn" style="flex:1" onclick="fpCheckUsername()">Continue</button>
+        <button onclick="closeForgotPassword()" style="flex:1;background:none;border:0.5px solid #D3D1C7;border-radius:8px;padding:9px;font-size:12px;cursor:pointer;color:#5F5E5A">Cancel</button>
+      </div>
+    </div>
+    <!-- Step 2: Confirm via recovery email -->
+    <div id="fpStep2" style="display:none">
+      <div style="font-size:14px;font-weight:700;color:#1B3A6B;margin-bottom:4px">🔑 Confirm Your Identity</div>
+      <div style="font-size:10px;color:#888780;margin-bottom:14px">A recovery email is registered for this account. Enter it exactly to reset the admin password to the default.</div>
+      <div style="background:#F0F4FB;border-radius:8px;padding:8px 12px;font-size:10px;color:#1B3A6B;margin-bottom:14px">
+        Recovery email on file: <strong id="fpMaskedEmail"></strong>
+      </div>
+      <div class="login-field"><label>Enter your recovery email</label><input type="email" id="fpEmailInput" placeholder="your@email.com" autocomplete="off" onkeydown="if(event.key==='Enter')fpConfirmReset()"></div>
+      <div id="fpStep2Err" style="font-size:10px;color:#A32D2D;background:#FCEBEB;border-radius:5px;padding:5px 9px;margin-top:6px;display:none"></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="login-btn" style="flex:1;background:#A32D2D" onclick="fpConfirmReset()">Reset Password</button>
+        <button onclick="closeForgotPassword()" style="flex:1;background:none;border:0.5px solid #D3D1C7;border-radius:8px;padding:9px;font-size:12px;cursor:pointer;color:#5F5E5A">Cancel</button>
+      </div>
+    </div>
+    <!-- Step 3: Success -->
+    <div id="fpStep3" style="display:none;text-align:center">
+      <div style="font-size:26px;margin-bottom:10px">✅</div>
+      <div style="font-size:13px;font-weight:700;color:#085041;margin-bottom:8px">Password Reset</div>
+      <div style="font-size:10px;color:#5F5E5A;margin-bottom:6px">The admin password has been reset to:</div>
+      <div style="background:#E1F5EE;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:700;color:#085041;letter-spacing:.04em;margin-bottom:16px">Admin@1234</div>
+      <div style="font-size:9px;color:#A32D2D;margin-bottom:16px">⚠ You will be required to set a new password immediately after logging in.</div>
+      <button class="login-btn" onclick="closeForgotPassword()">Back to Login</button>
+    </div>
   </div>
 </div>
 
@@ -1044,6 +1083,11 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <div class="form-grid">
             <div class="ff"><label>Display name / Nickname</label><input type="text" id="sNickname" placeholder="e.g. Mar, Admin, Supervisor"></div>
             <div class="ff"><label>Full name</label><input type="text" id="sFullName" placeholder="Your full name"></div>
+            <div class="ff" style="grid-column:span 2">
+              <label>Recovery email <span style="font-size:9px;color:#9AA5BB;font-weight:400">— required for "Forgot password" on the login page</span></label>
+              <input type="email" id="sRecoveryEmail" placeholder="your@email.com" autocomplete="off">
+              <span style="font-size:9px;color:#888780;margin-top:2px">Only admin accounts support password recovery. Keep this private.</span>
+            </div>
           </div>
           <div class="form-actions"><button class="btn btn-primary write-btn" onclick="saveProfile()">Save profile</button><div id="profileMsg"></div></div>
         </div>
@@ -1429,28 +1473,90 @@ async function ensureDefaultAdmin(){
   return users;
 }
 
-async function emergencyResetAdmin(){
-  const msgEl=document.getElementById('resetAdminMsg');
-  if(!_gdriveReady && !_credentialsFromFile){
-    if(msgEl){msgEl.textContent='Connect Google Drive first, then try again.';msgEl.style.color='#A32D2D';msgEl.style.display='block';}
+// ── Forgot Password — email-verified reset ──────────────────────────────────
+let _fpTargetUser=null; // the user object being reset
+
+function openForgotPassword(){
+  _fpTargetUser=null;
+  document.getElementById('fpUsername').value='';
+  document.getElementById('fpEmailInput').value='';
+  document.getElementById('fpStep1Err').style.display='none';
+  document.getElementById('fpStep2Err').style.display='none';
+  document.getElementById('fpStep1').style.display='';
+  document.getElementById('fpStep2').style.display='none';
+  document.getElementById('fpStep3').style.display='none';
+  document.getElementById('forgotPwModal').style.display='flex';
+  setTimeout(()=>document.getElementById('fpUsername').focus(),100);
+}
+
+function closeForgotPassword(){
+  document.getElementById('forgotPwModal').style.display='none';
+  _fpTargetUser=null;
+}
+
+function _maskEmail(email){
+  // e.g. john.doe@example.com → j*****e@e****e.com
+  if(!email||!email.includes('@'))return '(not set)';
+  const [local,domain]=email.split('@');
+  const ml=local.length>2?local[0]+'*'.repeat(local.length-2)+local[local.length-1]:local[0]+'*';
+  const dp=domain.split('.');
+  const md=dp[0].length>2?dp[0][0]+'*'.repeat(dp[0].length-2)+dp[0][dp[0].length-1]:dp[0][0]+'*';
+  return ml+'@'+md+'.'+dp.slice(1).join('.');
+}
+
+function fpCheckUsername(){
+  const un=(document.getElementById('fpUsername').value||'').trim().toLowerCase();
+  const err=document.getElementById('fpStep1Err');
+  if(!un){err.textContent='Please enter your username.';err.style.display='block';return;}
+  const users=getUsersArray()||[];
+  const uObj=users.find(x=>x.username.toLowerCase()===un&&x.role==='admin');
+  if(!uObj){err.textContent='No admin account found with that username.';err.style.display='block';return;}
+  // Check recovery email on profile — only the profile owner's email is checked
+  const prof=getAdminProfile();
+  const recoveryEmail=prof.recoveryEmail||'';
+  if(!recoveryEmail){
+    err.textContent='No recovery email is registered for this account. Ask your system admin to set one in Settings → Profile.';
+    err.style.display='block';return;
+  }
+  _fpTargetUser=uObj;
+  document.getElementById('fpMaskedEmail').textContent=_maskEmail(recoveryEmail);
+  document.getElementById('fpStep1').style.display='none';
+  document.getElementById('fpStep2').style.display='';
+  setTimeout(()=>document.getElementById('fpEmailInput').focus(),100);
+}
+
+async function fpConfirmReset(){
+  const entered=(document.getElementById('fpEmailInput').value||'').trim().toLowerCase();
+  const err=document.getElementById('fpStep2Err');
+  if(!entered){err.textContent='Please enter the recovery email.';err.style.display='block';return;}
+  const prof=getAdminProfile();
+  const registered=(prof.recoveryEmail||'').toLowerCase();
+  if(entered!==registered){
+    err.textContent='Email does not match. Access denied.';
+    err.style.display='block';
+    // Clear input and refocus for security
+    document.getElementById('fpEmailInput').value='';
     return;
   }
-  if(!confirm('Reset the admin account to:\n  Username: admin\n  Password: Admin@1234\n\nThis will overwrite any existing admin credentials. Continue?'))return;
-  if(msgEl){msgEl.textContent='Resetting…';msgEl.style.color='#5F5E5A';msgEl.style.display='block';}
+  if(!_fpTargetUser){err.textContent='Session expired. Please start again.';err.style.display='block';return;}
+  // Perform the reset
   try{
     if(!_defaultAdminHash) _defaultAdminHash=await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
-    const adminUser={username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null};
-    let users=getUsersArray()||[];
-    const idx=users.findIndex(x=>x.username==='admin');
-    if(idx>=0) users[idx]=adminUser; else users.unshift(adminUser);
+    const users=getUsersArray()||[];
+    const uObj=users.find(x=>x.username===_fpTargetUser.username);
+    if(!uObj){err.textContent='User not found.';err.style.display='block';return;}
+    uObj.hash=_defaultAdminHash;
+    uObj.mustChangePassword=true;
     saveUsersArray(users);
     if(_gdriveReady) await _gdriveSaveFile();
-    if(msgEl){msgEl.textContent='✓ Admin reset. Login with admin / Admin@1234';msgEl.style.color='#085041';msgEl.style.display='block';}
-    document.getElementById('loginUser').value='admin';
+    document.getElementById('fpStep2').style.display='none';
+    document.getElementById('fpStep3').style.display='';
+    // Pre-fill login username for convenience
+    document.getElementById('loginUser').value=_fpTargetUser.username;
     document.getElementById('loginPass').value='';
-    document.getElementById('loginPass').focus();
+    _fpTargetUser=null;
   }catch(e){
-    if(msgEl){msgEl.textContent='Reset failed: '+e.message;msgEl.style.color='#A32D2D';msgEl.style.display='block';}
+    err.textContent='Reset failed: '+e.message;err.style.display='block';
   }
 }
 
@@ -1659,6 +1765,10 @@ async function addUserAccount(){
   saveUsersArray(users);
   actlog.push({id:aNid++,empId:'SYSTEM',name:currentUserDisplay,username:currentUser,displayName:currentUserDisplay,reqType:'System',action:'User Added',dateReq:iso(getToday()),admin:currentUser,actionDate:isoNow(),note:'Added: '+un+' ('+role+')'});
   save();
+  // Force an immediate Drive save so the new user's hashed temp password
+  // is written to lms_data.json — save() alone may skip Drive if the lock
+  // isn't held, so we call _gdriveSaveFile() directly here.
+  if(_gdriveReady) _gdriveSaveFile().catch(e=>console.warn('Drive save (addUser) failed:',e));
   renderUserTable();
   showMsg('umAddMsg','User created. They must change password on first login.',true);
   ['umDispName','umUsername','umTempPass'].forEach(id=>document.getElementById(id).value='');
@@ -1709,6 +1819,8 @@ async function confirmResetPass(){
   saveUsersArray(users);
   actlog.push({id:aNid++,empId:'SYSTEM',name:currentUserDisplay,username:currentUser,displayName:currentUserDisplay,reqType:'System',action:'Password Reset',dateReq:iso(getToday()),admin:currentUser,actionDate:isoNow(),note:'Reset pw for: '+_resetPassTarget});
   save();
+  // Force Drive sync so the new temp password hash reaches lms_data.json immediately
+  if(_gdriveReady) _gdriveSaveFile().catch(e=>console.warn('Drive save (resetPass) failed:',e));
   renderUserTable();
   cancelResetPass();
   showMsg('umAddMsg','Password reset. User must change it on next login.',true);
@@ -1748,16 +1860,18 @@ function switchSettingsTab(tab,btn){
     const sn=document.getElementById('sNickname');if(sn)sn.value=prof.nickname||'';
     const sf=document.getElementById('sFullName');if(sf)sf.value=prof.fullname||'';
     const su=document.getElementById('sNewUser');if(su)su.value=currentUser;
+    const sr=document.getElementById('sRecoveryEmail');if(sr)sr.value=prof.recoveryEmail||'';
   }
 }
 
 // Removed: folder name config (replaced by Google Drive)
 
-function getAdminProfile(){return JSON.parse(localStorage.getItem('lms7_profile')||'null')||{nickname:'',fullname:''};}
+function getAdminProfile(){return JSON.parse(localStorage.getItem('lms7_profile')||'null')||{nickname:'',fullname:'',recoveryEmail:''};}
 function saveProfile(){
   const nick=(document.getElementById('sNickname').value||'').trim();
   const full=(document.getElementById('sFullName').value||'').trim();
-  localStorage.setItem('lms7_profile',JSON.stringify({nickname:nick,fullname:full}));
+  const rec=(document.getElementById('sRecoveryEmail').value||'').trim().toLowerCase();
+  localStorage.setItem('lms7_profile',JSON.stringify({nickname:nick,fullname:full,recoveryEmail:rec}));
   // Also update displayName in users array
   const users=getUsersArray();
   if(users&&nick){const u=users.find(x=>x.username===currentUser);if(u){u.displayName=nick;saveUsersArray(users);currentUserDisplay=nick;}}

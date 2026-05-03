@@ -288,6 +288,8 @@ body{background:linear-gradient(135deg,#EEF2F7 0%,#E8EDF5 100%);background-attac
 #lockBar.lock-loading .lock-dot{background:#E0A800;animation:lock-pulse 1s ease-in-out infinite}
 @keyframes lock-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
 .lock-spinner{width:12px;height:12px;border:2px solid rgba(122,85,0,.25);border-top-color:#E0A800;border-radius:50%;animation:lock-spin .7s linear infinite;flex-shrink:0}
+.gdrive-spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:lock-spin .7s linear infinite;flex-shrink:0}
+.gdrive-spinner-dark{width:13px;height:13px;border:2px solid rgba(27,58,107,.2);border-top-color:#1B3A6B;border-radius:50%;animation:lock-spin .7s linear infinite;flex-shrink:0}
 @keyframes lock-spin{to{transform:rotate(360deg)}}
 .lock-btn{border:none;border-radius:5px;padding:3px 10px;font-size:10px;cursor:pointer;font-weight:500}
 .lock-take{background:#1B3A6B;color:#fff}
@@ -347,8 +349,8 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
       </div>
       <div style="color:#5F5E5A;margin-bottom:8px">Sign in with Google to load the shared LMS data file. This is required before you can log in.</div>
       <button id="gdriveSignInBtn" onclick="gdriveSignIn()" style="width:100%;background:#1B3A6B;color:#fff;border:none;border-radius:7px;padding:8px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">
-        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-        Sign in with Google
+        <span id="gdriveSignInBtnIcon" style="display:flex;align-items:center"><svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg></span>
+        <span id="gdriveSignInBtnText">Sign in with Google</span>
       </button>
       <div id="gdriveConnectMsg" style="margin-top:7px;font-size:10px;text-align:center"></div>
     </div>
@@ -2005,22 +2007,47 @@ function _saveFileId(id){ try{ localStorage.setItem('lms_gfile', id); }catch(e){
 function _loadFileId(){ try{ return localStorage.getItem('lms_gfile')||null; }catch(e){ return null; } }
 
 // ── Google Identity Services sign-in popup ───────────────────────────────────
+function _setGdriveConnectLoading(on, statusText=''){
+  const btn  = document.getElementById('gdriveSignInBtn');
+  const icon = document.getElementById('gdriveSignInBtnIcon');
+  const txt  = document.getElementById('gdriveSignInBtnText');
+  const msg  = document.getElementById('gdriveConnectMsg');
+  if(on){
+    if(btn){ btn.disabled=true; btn.style.opacity='0.85'; btn.style.cursor='not-allowed'; }
+    if(icon){ icon.innerHTML='<span class="gdrive-spinner"></span>'; }
+    if(txt){ txt.textContent=statusText||'Connecting…'; }
+    if(msg){ msg.style.color='#5F5E5A'; msg.textContent=statusText||'Connecting to Google Drive…'; }
+  }else{
+    if(btn){ btn.disabled=false; btn.style.opacity=''; btn.style.cursor=''; }
+    if(icon){ icon.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>'; }
+    if(txt){ txt.textContent='Sign in with Google'; }
+  }
+}
+
 async function gdriveSignIn(){
   if(typeof google === 'undefined' || !google.accounts){
     _gdriveSetMsg('Google API not loaded. Check your internet connection.', 'err');
     return;
   }
+  _setGdriveConnectLoading(true, 'Waiting for Google sign-in…');
   return new Promise((resolve)=>{
     const client = google.accounts.oauth2.initTokenClient({
       client_id: GDRIVE_CLIENT_ID,
       scope: GDRIVE_SCOPE,
       prompt: '',
       callback: async (resp)=>{
-        if(resp.error){ _gdriveSetMsg('Sign-in cancelled or failed: '+resp.error,'err'); resolve(false); return; }
+        if(resp.error){
+          _setGdriveConnectLoading(false);
+          _gdriveSetMsg('Sign-in cancelled or failed: '+resp.error,'err');
+          resolve(false);
+          return;
+        }
+        _setGdriveConnectLoading(true, 'Signed in — loading data…');
         _gdriveToken = resp;
         _saveToken(resp);
         _gdriveAccountEmail = '';
         await _gdriveInitFile();
+        _setGdriveConnectLoading(false);
         resolve(true);
       }
     });
@@ -2115,6 +2142,7 @@ async function _gdriveResolveFolder(){
 
 // ── Find or create lms_data.json on Drive ────────────────────────────────────
 async function _gdriveInitFile(){
+  _setGdriveConnectLoading(true,'Connecting to Google Drive…');
   _gdriveSetMsg('Connecting to Google Drive…','');
   _credentialsFromFile = true; // token confirmed — allow login even before file loads
   // Resolve target folder (if configured)
@@ -2130,6 +2158,7 @@ async function _gdriveInitFile(){
     _gdriveFileId = data.files[0].id;
     _saveFileId(_gdriveFileId);
     _gdriveReady = true;
+    _setGdriveConnectLoading(true,'✓ File found — loading data…');
     _gdriveSetMsg('✓ Drive file found. Loading data…','ok');
     await _gdriveLoadFile();
   } else {
@@ -2137,6 +2166,7 @@ async function _gdriveInitFile(){
     const trashedId = await _gdriveCheckTrash();
     if(trashedId){
       // Restore it from trash automatically
+      _setGdriveConnectLoading(true,'⚠ Restoring from trash…');
       _gdriveSetMsg('⚠ Database was in trash — restoring…','');
       await _gdriveRestoreFromTrash(trashedId);
       _gdriveFileId = trashedId;
@@ -2146,6 +2176,7 @@ async function _gdriveInitFile(){
       await _gdriveLoadFile();
     } else {
       // Genuinely new install — create file
+      _setGdriveConnectLoading(true,'Creating database file…');
       _gdriveSetMsg('Creating lms_data.json on Drive…','');
       await _gdriveCreateFile();
     }

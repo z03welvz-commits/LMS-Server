@@ -280,14 +280,20 @@ body{background:linear-gradient(135deg,#EEF2F7 0%,#E8EDF5 100%);background-attac
 #lockBar.lock-none{background:#F0F7F4;color:#085041}
 #lockBar.lock-self{background:#EAF3FB;color:#0C447C}
 #lockBar.lock-other{background:#FFF4F4;color:#791F1F}
+#lockBar.lock-loading{background:#FDF6E3;color:#7A5500}
 #lockBar .lock-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 #lockBar.lock-none .lock-dot{background:#1D9E75}
 #lockBar.lock-self .lock-dot{background:#185FA5}
 #lockBar.lock-other .lock-dot{background:#A32D2D}
+#lockBar.lock-loading .lock-dot{background:#E0A800;animation:lock-pulse 1s ease-in-out infinite}
+@keyframes lock-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+.lock-spinner{width:12px;height:12px;border:2px solid rgba(122,85,0,.25);border-top-color:#E0A800;border-radius:50%;animation:lock-spin .7s linear infinite;flex-shrink:0}
+@keyframes lock-spin{to{transform:rotate(360deg)}}
 .lock-btn{border:none;border-radius:5px;padding:3px 10px;font-size:10px;cursor:pointer;font-weight:500}
 .lock-take{background:#1B3A6B;color:#fff}
 .lock-release{background:#E1F5EE;color:#085041;border:0.5px solid #5DCAA5}
 .lock-force{background:#FCEBEB;color:#791F1F;border:0.5px solid #F5C0C0}
+.lock-btn:disabled{opacity:.55;cursor:not-allowed}
 #lockCountdown{font-size:10px;color:#888780;margin-left:4px}
 /* ═══ EDITING NOTICE BANNER ═══ */
 #editingNoticeBanner{display:none;flex-shrink:0;align-items:center;gap:12px;padding:10px 16px;background:linear-gradient(90deg,#6B1212 0%,#A32D2D 100%);color:#fff;border-bottom:2px solid rgba(255,255,255,.15);z-index:46;animation:edBlink 3s ease-in-out infinite}
@@ -1932,8 +1938,7 @@ function switchSettingsTab(tab,btn){
     _populateDriveFolderInput();
   }
   if(tab==='profile'){
-    const su=document.getElementById('sNewUser');if(su)su.value=currentUser;
-    ['sNickname','sFullName','sRecoveryEmail'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    ['sNickname','sFullName','sRecoveryEmail','sCurPass','sNewPass','sNewUser'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   }
 }
 
@@ -1942,7 +1947,7 @@ function switchSettingsTab(tab,btn){
 // SECURITY: Wipe all credential and sensitive profile fields so they are never
 // left visible on an unattended screen. Called after save and on navigation away.
 function _clearCredentialFields(){
-  ['sCurPass','sNewPass','sNickname','sFullName'].forEach(id=>{
+  ['sCurPass','sNewPass','sNewUser','sNickname','sFullName'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
   // sNewUser is re-populated from currentUser each time the tab opens — clear it too
@@ -2553,9 +2558,31 @@ function stopLockTimers(){
   _renewFailCount=0;
 }
 
+function _setLockLoading(on){
+  const bar=document.getElementById('lockBar');
+  const txt=document.getElementById('lockBarText');
+  const takeBtn=document.getElementById('lockTakeBtn');
+  const dot=bar?bar.querySelector('.lock-dot'):null;
+  // Remove/add existing spinner
+  const existingSpinner=bar?bar.querySelector('.lock-spinner'):null;
+  if(on){
+    if(bar)bar.className='lock-loading';
+    if(txt)txt.textContent='Acquiring edit access…';
+    if(takeBtn){takeBtn.disabled=true;}
+    if(dot)dot.style.display='none';
+    if(!existingSpinner&&bar){
+      const sp=document.createElement('span');sp.className='lock-spinner';
+      bar.insertBefore(sp,bar.firstChild);
+    }
+  }else{
+    if(existingSpinner)existingSpinner.remove();
+    if(dot)dot.style.display='';
+    if(takeBtn){takeBtn.disabled=false;}
+  }
+}
+
 async function takeLock(){
   if(!_gdriveReady){
-    // No Drive — warn user; see Fix C2 for why we no longer silently grant the lock
     _isLockHolder=true;
     document.body.classList.remove('readonly-mode');
     const localLock={lockedBy:currentUser,displayName:currentUserDisplay,since:new Date().toISOString(),expiresAt:new Date(Date.now()+LOCK_DURATION_MS).toISOString(),lastActivity:new Date().toISOString()};
@@ -2564,35 +2591,76 @@ async function takeLock(){
     _startRenewInterval();
     return;
   }
-  // Read the current lock state — this also refreshes _gdriveFileEtag
-  const existing=await _gdriveReadLock();
-  if(existing && !existing._error && existing.lockedBy && existing.lockedBy!==currentUser){
-    const exp=new Date(existing.expiresAt);
-    if(exp>new Date()){
-      alert('Cannot take edit access — '+existing.displayName+' is currently editing.');
+
+  _setLockLoading(true);
+
+  // Single full-file read — captures lock state + ETag in one round-trip
+  let existingData=null, etag='';
+  try{
+    const r=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`,{headers:{'Cache-Control':'no-cache, no-store'}});
+    if(!r.ok){_setLockLoading(false);alert('Failed to acquire edit lock. Check your connection and try again.');return;}
+    etag=r.headers.get('ETag')||r.headers.get('etag')||'';
+    if(etag)_gdriveFileEtag=etag;
+    existingData=JSON.parse(await r.text());
+    _lastDriveModifiedTime='';
+  }catch(e){_setLockLoading(false);alert('Failed to acquire edit lock. Check your connection and try again.');return;}
+
+  // Check if someone else holds a valid lock
+  const existing=existingData._lock||null;
+  if(existing&&existing.lockedBy&&existing.lockedBy!==currentUser){
+    if(new Date(existing.expiresAt)>new Date()){
+      _setLockLoading(false);
+      alert('Cannot take edit access — '+(existing.displayName||existing.lockedBy)+' is currently editing.');
       return;
     }
   }
+
+  // Write lock using the ETag we already have — no second download needed
   const now=new Date();
   const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString(),sessionToken:_lockSessionToken};
-  // Atomic write — If-Match header prevents two clients from both succeeding simultaneously
-  const result=await _gdriveWriteLock(lockObj);
-  if(!result.ok){
-    if(result.conflict){
-      // Another user wrote the file between our read and write — re-read and re-evaluate
-      const freshLock=await _gdriveReadLock();
-      if(freshLock && freshLock.lockedBy && freshLock.lockedBy!==currentUser){
-        alert('Edit access was just taken by '+freshLock.displayName+'. Please wait.');
-        return;
-      }
-      // The write that beat us was unrelated (e.g. a data save) — retry once
-      const retry=await _gdriveWriteLock(lockObj);
-      if(!retry.ok){ alert('Failed to acquire edit lock. Please try again.'); return; }
-    } else {
-      alert('Failed to acquire edit lock. Check your connection and try again.');
+  existingData._lock=lockObj;
+  const patchHeaders={'Content-Type':'application/json'};
+  if(etag)patchHeaders['If-Match']=etag;
+  let pw;
+  try{
+    pw=await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`,{method:'PATCH',headers:patchHeaders,body:JSON.stringify(existingData,null,2)});
+  }catch(e){_setLockLoading(false);alert('Failed to acquire edit lock. Check your connection and try again.');return;}
+
+  if(pw.status===412){
+    // ETag mismatch — retry once with fresh read
+    let freshData=null,freshEtag='';
+    try{
+      const freshR=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`,{headers:{'Cache-Control':'no-cache, no-store'}});
+      if(!freshR.ok){_setLockLoading(false);alert('Failed to acquire edit lock. Please try again.');return;}
+      freshEtag=freshR.headers.get('ETag')||freshR.headers.get('etag')||'';
+      if(freshEtag)_gdriveFileEtag=freshEtag;
+      freshData=JSON.parse(await freshR.text());
+    }catch(e){_setLockLoading(false);alert('Failed to acquire edit lock. Please try again.');return;}
+    const freshLock=freshData._lock||null;
+    if(freshLock&&freshLock.lockedBy&&freshLock.lockedBy!==currentUser&&new Date(freshLock.expiresAt)>new Date()){
+      _setLockLoading(false);
+      alert('Edit access was just taken by '+(freshLock.displayName||freshLock.lockedBy)+'. Please wait.');
       return;
     }
+    freshData._lock=lockObj;
+    const retryHeaders={'Content-Type':'application/json'};
+    if(freshEtag)retryHeaders['If-Match']=freshEtag;
+    let retry;
+    try{retry=await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`,{method:'PATCH',headers:retryHeaders,body:JSON.stringify(freshData,null,2)});}
+    catch(e){_setLockLoading(false);alert('Failed to acquire edit lock. Please try again.');return;}
+    if(!retry.ok){_setLockLoading(false);alert('Failed to acquire edit lock. Please try again.');return;}
+    const retryEtag=retry.headers.get('ETag')||retry.headers.get('etag')||'';
+    if(retryEtag)_gdriveFileEtag=retryEtag;
+  }else if(!pw.ok){
+    _setLockLoading(false);
+    alert('Failed to acquire edit lock. Check your connection and try again.');
+    return;
+  }else{
+    const newEtag=pw.headers.get('ETag')||pw.headers.get('etag')||'';
+    if(newEtag)_gdriveFileEtag=newEtag;
   }
+
+  _setLockLoading(false);
   _lockInfo=lockObj;
   _isLockHolder=true;
   _updateLockBar(lockObj);

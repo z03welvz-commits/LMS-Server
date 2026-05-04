@@ -748,7 +748,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             <div class="ff"><label>Date start</label><input type="date" id="fStart" oninput="calcLeaveDuration()"></div>
             <div class="ff"><label>Date end <span style="font-size:9px;color:#9AA5BB;font-weight:400">(optional — leave blank if open-ended)</span></label><input type="date" id="fEnd" oninput="calcLeaveDuration()"></div>
             <div class="ff"><label>Duration <span style="font-size:9px;color:#9AA5BB;font-weight:400">(days, auto-calculated)</span></label><input type="text" id="fDuration" readonly style="background:#F1EFE8" placeholder="e.g. 03"></div>
-            <div class="ff"><label>RTW (Return to Work) <span style="font-size:9px;color:#9AA5BB;font-weight:400">(optional)</span></label><input type="date" id="fRtw"></div>
+            <div class="ff"><label>RTW (Return to Work) <span style="font-size:9px;color:#9AA5BB;font-weight:400">(auto-calculated, editable)</span></label><input type="date" id="fRtw"></div>
             <div class="ff"><label>Date filed <span style="font-size:9px;color:#9AA5BB;font-weight:400">(auto-filled)</span></label><input type="date" id="fFiled"></div>
             <div class="ff" style="grid-column:span 2"><label>Reason <span style="font-size:9px;color:#9AA5BB;font-weight:400">(employee's reason for leave)</span></label><input type="text" id="fReason" placeholder="e.g. Vacation, sick, family emergency…"></div>
             <div class="ff"><label>Administered by</label><input type="text" id="fAdmin" placeholder="Supervisor / HR"></div>
@@ -2804,6 +2804,7 @@ async function _renewLockNow(){
   }
   _lockInfo=lockObj;
   _updateLockBar(lockObj);
+  _startCountdown(); // reset countdown to reflect the fresh expiresAt after renewal
 }
 
 // ── Network-lost banner (shown when the editor loses Drive connectivity) ──────
@@ -3368,6 +3369,46 @@ function calcLeaveDuration(){
   const start=v('fStart'),end=v('fEnd');
   const el=document.getElementById('fDuration');
   if(el)el.value=calcDurationStr(start,end);
+  autoCalcRtw();
+}
+// ── Auto-calculate RTW: next working day after leave end, based on emp schedule ──
+function autoCalcRtw(){
+  const empId=(v('fEmpId')||'').trim();
+  const end=v('fEnd');
+  const rtwEl=document.getElementById('fRtw');
+  if(!rtwEl)return;
+  if(!empId||!end){rtwEl.value='';return;}
+  const emp=ge(empId);
+  if(!emp){rtwEl.value='';return;}
+  // Walk forward from day after leave end to find first non-rest day
+  let d=pd(end);
+  d.setDate(d.getDate()+1);
+  for(let i=0;i<60;i++){
+    const ds=iso(d);
+    const s=getSched(emp,ds);
+    if(!s.isRest){rtwEl.value=ds;return;}
+    d.setDate(d.getDate()+1);
+  }
+  rtwEl.value=''; // fallback: couldn't find within 60 days
+}
+// Same but for the Amend modal (uses stored empId from _amendLeaveId)
+function autoCalcAmendRtw(){
+  const l=leaves.find(x=>x.id===_amendLeaveId);
+  const rtwEl=document.getElementById('amRtw');
+  if(!rtwEl||!l)return;
+  const end=document.getElementById('amEnd').value;
+  if(!end){rtwEl.value='';return;}
+  const emp=ge(l.empId);
+  if(!emp){rtwEl.value='';return;}
+  let d=pd(end);
+  d.setDate(d.getDate()+1);
+  for(let i=0;i<60;i++){
+    const ds=iso(d);
+    const s=getSched(emp,ds);
+    if(!s.isRest){rtwEl.value=ds;return;}
+    d.setDate(d.getDate()+1);
+  }
+  rtwEl.value='';
 }
 function ge(id){return employees.find(e=>e.id===id)}
 function v(id){const el=document.getElementById(id);return el?el.value:''}
@@ -3658,10 +3699,8 @@ function goPage(name,btn){
     renderLeaveLog();renderOvrTable();renderPendingRequests();
     buildLeaveTypeSelect('fType');
     injectLeaveTypeBadgeCSS();
-    const prof=getAdminProfile();
-    const defAdmin=prof.nickname||prof.fullname||currentUser||'Admin';
     const fadm=document.getElementById('fAdmin');
-    if(fadm&&!fadm.value)fadm.value=defAdmin;
+    if(fadm)fadm.value=currentUserDisplay||currentUser||'Admin';
     const ff=document.getElementById('fFiled');if(ff&&!ff.value)ff.value=iso(today);
     const fs=document.getElementById('fStart');if(fs&&!fs.value)fs.value=iso(today);
   }
@@ -5211,6 +5250,7 @@ function autoFill(srcId,tgtId){
     const cpEl=document.getElementById('fContact');
     if(cpEl&&e&&e.cp)cpEl.value=e.cp;
     else if(cpEl)cpEl.value='';
+    autoCalcRtw();
   }
 }
 function leaveTab(name,btn){
@@ -5275,7 +5315,7 @@ function importLeaveCsv(){
       if(conflict){skipped++;errors.push('Row '+(li+2)+': '+empId+' already has '+conflict.type+' ('+conflict.start+' – '+(conflict.end||'open')+')');return;}
       leaves.push({id:lNid++,empId,type,start,end,status,admin,reason:'',remarks:'',contactNo:'',filed,duration:calcDurationStr(start,end),rtw:''});
       const e=ge(empId);
-      actlog.push({id:aNid++,empId,name:e?e.name:empId,reqType:'Leave',action:'Leave CSV Import',dateReq:iso(today),admin,actionDate:isoNow()});
+      actlog.push({id:aNid++,empId,name:e?e.name:empId,reqType:'Leave',action:'Leave CSV Import',dateReq:iso(today),admin,username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
       added++;
       if(previewRows.length<5)previewRows.push({empId,type,start,end,status});
     });
@@ -5317,7 +5357,7 @@ function addLeave(){
   const e=ge(empId);
   const duration=calcDurationStr(start,rawEnd);
   leaves.push({id:lNid++,empId,type,start,end:rawEnd||'',status,admin,reason,remarks:'',contactNo,filed,rtw,duration});
-  actlog.push({id:aNid++,empId,name:e?e.name:empId,reqType:'Leave',action:'Leave Filed',dateReq:iso(today),admin,actionDate:isoNow(),
+  actlog.push({id:aNid++,empId,name:e?e.name:empId,reqType:'Leave',action:'Leave Filed',dateReq:iso(today),admin,username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
     note:`Type: ${type} | From: ${start}${rawEnd?' → '+rawEnd:' (open-ended)'} | Status: ${status}${reason?' | Reason: '+reason:''}`});
   // ── CP number: save to employee if new/changed ───────────────────────────
   if(contactNo&&e){
@@ -5325,7 +5365,7 @@ function addLeave(){
     if(!existingCp){
       // No existing CP — silently register the new number
       e.cp=contactNo;
-      actlog.push({id:aNid++,empId,name:e.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow(),note:`CP number registered: ${contactNo}`});
+      actlog.push({id:aNid++,empId,name:e.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),note:`CP number registered: ${contactNo}`});
     } else if(existingCp!==contactNo){
       // Different number — ask user via prompt
       _pendingCpUpdate={empId,newCp:contactNo,oldCp:existingCp,name:e.name,leaveId:lNid-1};
@@ -5339,8 +5379,7 @@ function addLeave(){
   document.getElementById('fContact').value='';document.getElementById('fReason').value='';
   document.getElementById('fRtw').value='';document.getElementById('fDuration').value='';
   document.getElementById('fFiled').value=iso(today);
-  const prof=getAdminProfile();
-  document.getElementById('fAdmin').value=prof.nickname||prof.fullname||currentUser||'Admin';
+  document.getElementById('fAdmin').value=currentUserDisplay||currentUser||'Admin';
   buildDropdowns();renderLeaveLog();renderPendingRequests();
 }
 function ovrTab(name,btn){
@@ -5385,7 +5424,7 @@ function importOvrCsv(){
       if(end<start){skipped++;errors.push('Row '+(li+2)+': End date before start date');return;}
       overrides.push({id:oNid++,empId,shift,start,end,status,admin,reason});
       const emp=ge(empId);
-      actlog.push({id:aNid++,empId,name:emp?emp.name:empId,reqType:'Special Schedule',action:'Special Schedule CSV Import',dateReq:iso(today),admin,actionDate:isoNow()});
+      actlog.push({id:aNid++,empId,name:emp?emp.name:empId,reqType:'Special Schedule',action:'Special Schedule CSV Import',dateReq:iso(today),admin,username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
       added++;
       if(previewRows.length<5)previewRows.push({empId,shift,start,end,status});
     });
@@ -5406,7 +5445,7 @@ function addOverride(){
   if(end<start){showMsg('ovrMsg','End date must be on or after start date.',false);return;}
   const e=ge(empId);
   overrides.push({id:oNid++,empId,shift,start,end,status,admin,reason});
-  actlog.push({id:aNid++,empId,name:e?e.name:empId,reqType:'Special Schedule',action:'Special Schedule Added',dateReq:iso(getToday()),admin,actionDate:isoNow()});
+  actlog.push({id:aNid++,empId,name:e?e.name:empId,reqType:'Special Schedule',action:'Special Schedule Added',dateReq:iso(getToday()),admin,username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
   _bumpOverrideGen(); // FIX: invalidate schedule cache for override change
   save();showMsg('ovrMsg',`Override saved: ${e?esc(e.name):esc(empId)} → ${shift}`,true);
   document.getElementById('oEmpId').value='';document.getElementById('oEmpName').value='';
@@ -5549,7 +5588,7 @@ function applyBulkLeaveEdit(){
     const statusActionMap={approved:'Leave Approved',cancelled:'Leave Cancelled',pending:'Leave Pending'};
     const actAction=newStatus?(statusActionMap[newStatus]||'Leave Updated'):'Leave Updated';
     actlog.push({id:aNid++,empId:l.empId,name:e.name||l.empId,reqType:'Leave',action:actAction,
-      dateReq:iso(getToday()),admin:currentUser||'Admin',actionDate:isoNow(),
+      dateReq:iso(getToday()),admin:currentUser||'Admin',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
       note:'Bulk amendment: '+amendReason+' | '+changes.join(', ')});
   });
   if(!changeCount){
@@ -5655,7 +5694,7 @@ function bulkPendingAction(newStatus){
     const e=ge(l.empId)||{};
     l.status=newStatus;
     actlog.push({id:aNid++,empId:l.empId,name:e.name||l.empId,reqType:'Leave',action:actionMap[newStatus],
-      dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow(),
+      dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
       note:`Type: ${l.type} | From: ${l.start}${l.end&&l.end!==MAX_DATE?' → '+l.end:' (open-ended)'}${l.remarks?' | Remarks: '+l.remarks:''} | Bulk action`});
   });
   save();renderPendingRequests();renderLeaveLog();renderHome();
@@ -5667,7 +5706,7 @@ function updateLeaveStatus(id,newStatus){
     l.status=newStatus;
     const actionMap={approved:'Leave Approved',cancelled:'Leave Cancelled',pending:'Leave Pending'};
     const action=actionMap[newStatus]||'Leave Status Updated';
-    actlog.push({id:aNid++,empId:l.empId,name:e.name||l.empId,reqType:'Leave',action,dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow(),
+    actlog.push({id:aNid++,empId:l.empId,name:e.name||l.empId,reqType:'Leave',action,dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
       note:`Type: ${l.type} | From: ${l.start}${l.end&&l.end!==MAX_DATE?' → '+l.end:' (open-ended)'}${l.remarks?' | Remarks: '+l.remarks:''}`});
     save();renderPendingRequests();renderLeaveLog();renderHome();
   }
@@ -5771,7 +5810,7 @@ function deleteSelectedOvr(){
 }
 function delLeave(id){
   const l=leaves.find(x=>x.id===id);
-  if(l){const e=ge(l.empId)||{};actlog.push({id:aNid++,empId:l.empId,name:e.name||l.empId,reqType:'Leave',action:'Leave Deleted',dateReq:iso(getToday()),admin:currentUser||'System',actionDate:isoNow(),
+  if(l){const e=ge(l.empId)||{};actlog.push({id:aNid++,empId:l.empId,name:e.name||l.empId,reqType:'Leave',action:'Leave Deleted',dateReq:iso(getToday()),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
     note:`Type: ${l.type} | From: ${l.start}${l.end&&l.end!==MAX_DATE?' → '+l.end:' (open-ended)'} | Was: ${l.status}`});}
   leaves=leaves.filter(l=>l.id!==id);save();buildDropdowns();renderLeaveLog();renderPendingRequests();renderHome();
 }
@@ -5850,6 +5889,7 @@ function calcAmendDuration(){
   const e=document.getElementById('amEnd').value;
   const el=document.getElementById('amDuration');
   if(el)el.value=calcDurationStr(s,e)||'';
+  autoCalcAmendRtw();
 }
 
 function saveAmendment(){
@@ -5927,7 +5967,7 @@ function saveAmendment(){
   actlog.push({
     id:aNid++,empId:l.empId,name:e.name||l.empId,
     reqType:'Leave',action:actAction,
-    dateReq:iso(getToday()),admin:currentUser||'Admin',actionDate:isoNow(),
+    dateReq:iso(getToday()),admin:currentUser||'Admin',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
     note:'Amendment: '+newReason+' | '+changes.join(', ')+(newRemarks?' | Admin remarks: '+newRemarks:'')
   });
 
@@ -5937,7 +5977,7 @@ function saveAmendment(){
 }
 function delOvr(id){
   const o=overrides.find(x=>x.id===id);
-  if(o){const e=ge(o.empId)||{};actlog.push({id:aNid++,empId:o.empId,name:e.name||o.empId,reqType:'Special Schedule',action:'Special Schedule Deleted',dateReq:iso(getToday()),admin:currentUser||'System',actionDate:isoNow()});}
+  if(o){const e=ge(o.empId)||{};actlog.push({id:aNid++,empId:o.empId,name:e.name||o.empId,reqType:'Special Schedule',action:'Special Schedule Deleted',dateReq:iso(getToday()),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});}
   overrides=overrides.filter(o=>o.id!==id);
   _bumpOverrideGen(); // FIX: invalidate schedule cache
   save();renderOvrTable();
@@ -6080,7 +6120,7 @@ function addEmp(){
   const cp=(v('eCp')||'').trim();
   const role=v('eRole')||'regular';
   employees.push({id,name,unit,type,role,anchor:normalizeDate(anchor),firstShift,baseRest,cp:cp||''});
-  actlog.push({id:aNid++,empId:id,name,reqType:'Employee',action:'Employee Added',dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow()});
+  actlog.push({id:aNid++,empId:id,name,reqType:'Employee',action:'Employee Added',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
   save();showMsg('empMsg',`${name} added.`,true);
   ['eId','eName','eUnit','eAnchor'].forEach(i=>document.getElementById(i).value='');
   renderEmpTable();buildDropdowns();
@@ -6102,7 +6142,7 @@ function changeRest(){
   emp.baseRest=nr;
   actlog.push({id:aNid++,empId,name:emp.name,reqType:'Employee',
     action:'Rest Day Changed',
-    dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow(),
+    dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
     note:`New rest: ${DAYS[nr]}, effective: ${effective}, shift: ${shift}${reason?' ('+reason+')':''}`});
   save();
   showMsg('restMsg',`${emp.name} rest day changed to ${DAYS[nr]} effective ${effective} (${shift} shift).`,true);
@@ -6135,7 +6175,7 @@ function previewRestChange(){
 }
 function delEmp(id){
   const emp=ge(id);
-  if(emp)actlog.push({id:aNid++,empId:id,name:emp.name,reqType:'Employee',action:'Employee Deleted',dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow()});
+  if(emp)actlog.push({id:aNid++,empId:id,name:emp.name,reqType:'Employee',action:'Employee Deleted',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
   employees=employees.filter(e=>e.id!==id);save();renderEmpTable();buildDropdowns();
 }
 let empSelection=new Set();
@@ -6269,7 +6309,7 @@ function importCsv(){
         if(overwrite){Object.assign(existing,{name,unit,type:type.toLowerCase(),role,firstShift,anchor,baseRest});overwritten++;preview.push({empId,name,status:'overwritten'});return;}
       }
       employees.push({id:empId,name,unit,type:type.toLowerCase(),role,firstShift,anchor:normalizeDate(anchor),baseRest});
-      actlog.push({id:aNid++,empId,name,reqType:'Employee',action:'Employee CSV Import',dateReq:iso(today),admin:currentUser+' (CSV)',actionDate:isoNow()});
+      actlog.push({id:aNid++,empId,name,reqType:'Employee',action:'Employee CSV Import',dateReq:iso(today),admin:currentUser,username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow()});
       added++;preview.push({empId,name,status:'added'});
     });
     save();buildDropdowns();renderEmpTable();
@@ -6318,7 +6358,7 @@ function saveEditModal(){
   const prevShift=getSched(emp,iso(today)).shift;
   emp.name=name;emp.unit=unit;emp.type=v('meType');emp.role=v('meRole')||'regular';emp.firstShift=v('meFirstShift');emp.anchor=normalizeDate(anchor);emp.baseRest=parseInt(v('meRest'));emp.cp=(v('meCp')||'').trim();
   const newShift=getSched(emp,iso(today)).shift;
-  actlog.push({id:aNid++,empId:editingEmpId,name:emp.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow()});
+  actlog.push({id:aNid++,empId:editingEmpId,name:emp.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
   save();renderEmpTable();buildDropdowns();
   const el=document.getElementById('meMsg');el.style.color='#0F6E56';
   el.textContent=`Saved.${prevShift!==newShift?' Shift corrected: '+prevShift+' -> '+newShift:''}`;
@@ -6377,7 +6417,7 @@ function applyBulkEdit(){
   if(!checked.length){showMsg('beMsg','Select at least one employee.',false);return;}
   let count=0;
   checked.forEach(empId=>{const emp=ge(empId);if(!emp)return;if(field==='baseRest')emp.baseRest=parseInt(newVal);else emp[field]=newVal;count++;
-    actlog.push({id:aNid++,empId,name:emp.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow()});
+    actlog.push({id:aNid++,empId,name:emp.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
   });
   save();renderEmpTable();renderBulkTable();buildDropdowns();
   showMsg('beMsg',`Updated ${count} employee(s).`,true);
@@ -6429,8 +6469,8 @@ function renderActivity(){
     ${th('action','Action','15%')}${th('admin','Done by','10%')}${th('actionDate','Date & Time','12%')}<th style="width:25%">Details / Remarks</th>
   </tr></thead>
     <tbody>${rows.map(a=>{const bg=ACT_COLOR[a.action]||'#F1EFE8';const tc=ACT_TEXT[a.action]||'#2C2C2A';
-    const userDisplay=a.displayName||a.admin||'—';
-    return`<tr><td>${esc(a.empId||'—')}</td><td>${esc(a.name||'—')}</td><td style="font-size:10px;color:#185FA5">${esc(userDisplay)}</td><td>${esc(a.reqType||'—')}</td><td><span class="badge" style="background:${bg};color:${tc}">${esc(a.action||'—')}</span></td><td>${esc(a.admin||'—')}</td><td style="white-space:nowrap">${fmtDatetime(a.actionDate)}</td><td style="color:#5F5E5A;font-size:10px;white-space:normal">${esc(a.note||'—')}</td></tr>`;}).join('')}</tbody></table>`:`<div class="no-data">No activity records.</div>`;
+    const userCol=esc(a.username||a.admin||'—');
+    return`<tr><td>${esc(a.empId||'—')}</td><td>${esc(a.name||'—')}</td><td style="font-size:10px;color:#185FA5;font-weight:500">${userCol}</td><td>${esc(a.reqType||'—')}</td><td><span class="badge" style="background:${bg};color:${tc}">${esc(a.action||'—')}</span></td><td>${esc(a.displayName||a.admin||'—')}</td><td style="white-space:nowrap">${fmtDatetime(a.actionDate)}</td><td style="color:#5F5E5A;font-size:10px;white-space:normal">${esc(a.note||'—')}</td></tr>`;}).join('')}</tbody></table>`:`<div class="no-data">No activity records.</div>`;
 }
 
 // ─── STORAGE UI HELPERS ───────────────────────────────────────────────────────
@@ -8085,7 +8125,7 @@ function initApp(){
           <input type="text" id="amDuration" readonly style="background:#F1EFE8">
         </div>
         <div class="ff">
-          <label>RTW (Return to Work) <span style="font-size:9px;color:#9AA5BB;font-weight:400">(optional)</span></label>
+          <label>RTW (Return to Work) <span style="font-size:9px;color:#9AA5BB;font-weight:400">(auto-calculated, editable)</span></label>
           <input type="date" id="amRtw">
         </div>
         <div class="ff">
@@ -8256,7 +8296,7 @@ function cpUseNew(){
   const e=ge(empId);
   if(e){
     e.cp=newCp;
-    actlog.push({id:aNid++,empId,name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow(),note:`CP number updated to: ${newCp}`});
+    actlog.push({id:aNid++,empId,name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),note:`CP number updated to: ${newCp}`});
     save();renderEmpTable();
   }
   _pendingCpUpdate=null;
@@ -8292,7 +8332,7 @@ function confirmResign(){
   emp.resignReason=reason;
   emp.resignRemarks=remarks||'';
   actlog.push({id:aNid++,empId:emp.id,name:emp.name,reqType:'Employee',
-    action:'Employee Resigned',dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow(),
+    action:'Employee Resigned',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
     note:reason+(remarks?' — '+remarks:'')+' | Last day: '+lastDay});
   save();
   closeResignModal();
@@ -8307,7 +8347,7 @@ function reinstateEmp(id){
   emp.resignReason=undefined;
   emp.resignRemarks=undefined;
   actlog.push({id:aNid++,empId:emp.id,name:emp.name,reqType:'Employee',
-    action:'Employee Reinstated',dateReq:iso(today),admin:currentUser||'System',actionDate:isoNow()});
+    action:'Employee Reinstated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
   save();renderEmpTable();buildDropdowns();renderHome();
 }
 </script>

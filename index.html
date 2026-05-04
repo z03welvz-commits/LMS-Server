@@ -297,6 +297,68 @@ body{background:linear-gradient(135deg,#EEF2F7 0%,#E8EDF5 100%);background-attac
 .lock-force{background:#FCEBEB;color:#791F1F;border:0.5px solid #F5C0C0}
 .lock-btn:disabled{opacity:.55;cursor:not-allowed}
 #lockCountdown{font-size:10px;color:#888780;margin-left:4px}
+/* Request Edit Access */
+.lock-request{background:#F5E6FB;color:#5B2D8E;border:0.5px solid #C89EE8}
+.lock-request:hover{background:#EBD5F5}
+.lock-request.requested{background:#E8F5E9;color:#2E7D32;border:0.5px solid #81C784;cursor:default}
+#lockQueueBadge{display:none;background:#BA7517;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle}
+/* Edit request notification popup */
+#editRequestPopup{display:none;position:fixed;bottom:72px;right:20px;z-index:600;background:#fff;border-radius:12px;box-shadow:0 6px 28px rgba(0,0,0,.18);border:1px solid #C89EE8;width:290px;overflow:hidden;animation:erSlideIn .25s ease}
+@keyframes erSlideIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+#editRequestPopup .erp-head{background:linear-gradient(90deg,#5B2D8E,#8B5CF6);color:#fff;padding:10px 14px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:7px}
+#editRequestPopup .erp-body{padding:12px 14px}
+#editRequestPopup .erp-queue{max-height:100px;overflow-y:auto;margin-bottom:10px}
+#editRequestPopup .erp-item{display:flex;align-items:center;gap:7px;padding:4px 0;border-bottom:0.5px solid #F1EFE8;font-size:11px}
+#editRequestPopup .erp-item:last-child{border-bottom:none}
+#editRequestPopup .erp-avatar{width:22px;height:22px;border-radius:50%;background:#E6D9F7;color:#5B2D8E;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+#editRequestPopup .erp-name{flex:1;color:#2C2C2A;font-weight:500}
+#editRequestPopup .erp-time{font-size:9px;color:#888780}
+#editRequestPopup .erp-actions{display:flex;gap:7px}
+#editRequestPopup .erp-btn{flex:1;border:none;border-radius:6px;padding:6px 8px;font-size:11px;font-weight:500;cursor:pointer}
+#editRequestPopup .erp-release{background:#1B3A6B;color:#fff}
+#editRequestPopup .erp-release:hover{background:#0F2A50}
+#editRequestPopup .erp-dismiss{background:#F1EFE8;color:#5F5E5A}
+#editRequestPopup .erp-dismiss:hover{background:#E5E3DC}
+#editRequestPopup .erp-pulse{width:8px;height:8px;border-radius:50%;background:#ff6b6b;animation:enPulse 1.2s ease-in-out infinite;flex-shrink:0}
+/* Admin Grant Access Modal */
+#adminGrantModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:700;align-items:center;justify-content:center}
+#adminGrantModal.show{display:flex}
+.agm-box{background:#fff;border-radius:14px;width:400px;max-width:95vw;max-height:88vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.2)}
+.agm-head{padding:14px 18px;background:linear-gradient(90deg,#1B3A6B,#185FA5);color:#fff;display:flex;align-items:center;justify-content:space-between}
+.agm-head-title{font-size:13px;font-weight:700}
+.agm-head-close{background:none;border:none;color:rgba(255,255,255,.7);font-size:18px;cursor:pointer;line-height:1}
+.agm-body{padding:16px;overflow-y:auto;flex:1}
+.agm-desc{font-size:11px;color:#5F5E5A;margin-bottom:14px;line-height:1.5}
+.agm-current{background:#FFF9C4;border:0.5px solid #E0D800;border-radius:8px;padding:9px 12px;margin-bottom:14px;font-size:11px}
+.agm-current-label{font-size:9px;font-weight:600;color:#7A5500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.agm-queue-label{font-size:9px;font-weight:600;color:#1B3A6B;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.agm-requester{display:flex;align-items:center;gap:10px;padding:9px 10px;border:0.5px solid #D3D1C7;border-radius:8px;margin-bottom:6px;background:#fff}
+.agm-requester:hover{background:#F5F3FF;border-color:#C89EE8}
+.agm-avatar{width:30px;height:30px;border-radius:50%;background:#E6D9F7;color:#5B2D8E;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.agm-info{flex:1;min-width:0}
+.agm-name{font-size:11px;font-weight:600;color:#2C2C2A}
+.agm-meta{font-size:9px;color:#888780;margin-top:1px}
+.agm-grant-btn{background:#1B3A6B;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:500;cursor:pointer;white-space:nowrap}
+.agm-grant-btn:hover{background:#0F2A50}
+.agm-empty{font-size:11px;color:#888780;text-align:center;padding:16px 0}
+.agm-footer{padding:10px 16px;border-top:0.5px solid #D3D1C7;display:flex;gap:8px;justify-content:flex-end}
+.lock-manage{background:#5B2D8E;color:#fff;border:none}
+/* Request Access Note Modal */
+#reqNoteModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:700;align-items:center;justify-content:center}
+#reqNoteModal.show{display:flex}
+.rnm-box{background:#fff;border-radius:12px;width:360px;max-width:94vw;overflow:hidden;box-shadow:0 6px 28px rgba(0,0,0,.18)}
+.rnm-head{background:linear-gradient(90deg,#5B2D8E,#8B5CF6);color:#fff;padding:12px 16px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:7px}
+.rnm-body{padding:14px 16px}
+.rnm-desc{font-size:11px;color:#5F5E5A;margin-bottom:10px;line-height:1.5}
+.rnm-label{font-size:10px;font-weight:600;color:#1B3A6B;margin-bottom:4px}
+.rnm-textarea{width:100%;box-sizing:border-box;border:0.5px solid #C89EE8;border-radius:7px;padding:8px 10px;font-size:11px;font-family:inherit;resize:vertical;min-height:72px;outline:none;color:#2C2C2A;background:#FDFBFF}
+.rnm-textarea:focus{border-color:#8B5CF6;box-shadow:0 0 0 2px rgba(139,92,246,.12)}
+.rnm-char{font-size:9px;color:#888780;text-align:right;margin-top:3px}
+.rnm-footer{display:flex;gap:8px;justify-content:flex-end;padding:10px 16px;border-top:0.5px solid #E5E3DC}
+.rnm-send{background:#5B2D8E;color:#fff;border:none;border-radius:7px;padding:6px 16px;font-size:11px;font-weight:600;cursor:pointer}
+.rnm-send:hover{background:#4A2470}
+.rnm-cancel{background:#F1EFE8;color:#5F5E5A;border:none;border-radius:7px;padding:6px 14px;font-size:11px;cursor:pointer}
+.rnm-cancel:hover{background:#E5E3DC}
 /* ═══ EDITING NOTICE BANNER ═══ */
 #editingNoticeBanner{display:none;flex-shrink:0;align-items:center;gap:12px;padding:10px 16px;background:linear-gradient(90deg,#6B1212 0%,#A32D2D 100%);color:#fff;border-bottom:2px solid rgba(255,255,255,.15);z-index:46;animation:edBlink 3s ease-in-out infinite}
 #editingNoticeBanner.show{display:flex}
@@ -490,8 +552,63 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
     <span class="lock-dot"></span>
     <span id="lockBarText">✏️ No one is editing</span>
     <button id="lockTakeBtn" class="lock-btn lock-take" onclick="takeLock()">Take Edit Access</button>
+    <button id="lockRequestBtn" class="lock-btn lock-request" onclick="requestEditAccess()" style="display:none">🙋 Request Access</button>
+    <span id="lockQueueBadge"></span>
     <span id="lockCountdown"></span>
     <button id="lockForceBtn" class="lock-btn lock-force" onclick="forceReleaseLock()" style="display:none">Force Release</button>
+    <button id="lockManageBtn" class="lock-btn lock-manage" onclick="openAdminGrantModal()" style="display:none">🛡️ Manage Queue</button>
+  </div>
+  <!-- Request Access Note Modal -->
+  <div id="reqNoteModal">
+    <div class="rnm-box">
+      <div class="rnm-head"><span>🙋</span> Request Edit Access</div>
+      <div class="rnm-body">
+        <div class="rnm-desc">Let the current editor (and admin) know why you need access. Your note will be visible in the request queue.</div>
+        <div class="rnm-label">Reason / Note <span style="font-weight:400;color:#888780">(optional)</span></div>
+        <textarea class="rnm-textarea" id="reqNoteText" maxlength="160" placeholder="e.g. Urgent schedule update for tonight's shift…" oninput="document.getElementById('reqNoteChar').textContent=this.value.length+'/160'"></textarea>
+        <div class="rnm-char" id="reqNoteChar">0/160</div>
+      </div>
+      <div class="rnm-footer">
+        <button class="rnm-cancel" onclick="closeReqNoteModal()">Cancel</button>
+        <button class="rnm-send" onclick="submitRequestWithNote()">Send Request</button>
+      </div>
+    </div>
+  </div>
+  <!-- Edit Request Notification Popup (shown to the current editor) -->
+  <div id="editRequestPopup">
+    <div class="erp-head">
+      <span class="erp-pulse"></span>
+      <span>✋ Edit Access Requested</span>
+    </div>
+    <div class="erp-body">
+      <div id="erpQueue" class="erp-queue"></div>
+      <div class="erp-actions">
+        <button class="erp-btn erp-release" onclick="releaseLock();dismissEditRequestPopup()">Release & Let Them In</button>
+        <button class="erp-btn erp-dismiss" onclick="dismissEditRequestPopup()">Dismiss</button>
+      </div>
+    </div>
+  </div>
+  <!-- Admin Grant Access Modal -->
+  <div id="adminGrantModal">
+    <div class="agm-box">
+      <div class="agm-head">
+        <span class="agm-head-title">🛡️ Admin — Manage Edit Queue</span>
+        <button class="agm-head-close" onclick="closeAdminGrantModal()">&times;</button>
+      </div>
+      <div class="agm-body">
+        <div class="agm-desc">As admin, you can grant edit access to a specific user. This will force-release the current editor's lock and automatically give access to the chosen user.</div>
+        <div id="agmCurrentEditor" class="agm-current" style="display:none">
+          <div class="agm-current-label">Currently editing</div>
+          <div id="agmCurrentName" style="font-weight:600;color:#2C2C2A"></div>
+        </div>
+        <div class="agm-queue-label">Users Requesting Access</div>
+        <div id="agmQueueList"></div>
+      </div>
+      <div class="agm-footer">
+        <button class="btn btn-ghost" onclick="closeAdminGrantModal()">Close</button>
+        <button class="btn lock-btn lock-force" onclick="forceReleaseLock();closeAdminGrantModal()" id="agmForceBtn" style="font-size:11px">Force Release (no grant)</button>
+      </div>
+    </div>
   </div>
   <!-- Editing notice banner — only visible to OTHER users when someone holds the lock -->
   <div id="editingNoticeBanner">
@@ -2680,7 +2797,7 @@ async function takeLock(){
 
   // Write lock using the ETag we already have — no second download needed
   const now=new Date();
-  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString(),sessionToken:_lockSessionToken};
+  const lockObj={lockedBy:currentUser,displayName:currentUserDisplay,since:now.toISOString(),expiresAt:new Date(now.getTime()+LOCK_DURATION_MS).toISOString(),lastActivity:now.toISOString(),sessionToken:_lockSessionToken,requests:[]};
   existingData._lock=lockObj;
   const patchHeaders={'Content-Type':'application/json'};
   if(etag)patchHeaders['If-Match']=etag;
@@ -2724,6 +2841,7 @@ async function takeLock(){
   _setLockLoading(false);
   _lockInfo=lockObj;
   _isLockHolder=true;
+  _myRequestPending=false; // we now have the lock — clear request state
   _updateLockBar(lockObj);
   document.body.classList.remove('readonly-mode');
   _startRenewInterval();
@@ -2774,6 +2892,244 @@ async function forceReleaseLock(){
   _updateLockBar(null);
   actlog.push({id:aNid++,empId:'SYSTEM',name:currentUserDisplay,username:currentUser,displayName:currentUserDisplay,reqType:'System',action:'Lock Force Released',dateReq:iso(getToday()),admin:currentUser,actionDate:isoNow()});
   save(); // bumps savedAt/pingAt so viewers pick up the cleared lock via burst-poll
+}
+
+// ─── EDIT ACCESS REQUEST QUEUE ────────────────────────────────────────────────
+// Requests are stored in _lock.requests = [{user, displayName, requestedAt}]
+// The current editor sees a popup; waiting users see their status in the lock bar.
+
+let _myRequestPending = false;  // true if the current user has a pending request
+let _erDismissedAt = 0;          // timestamp when the editor last dismissed the popup
+
+async function requestEditAccess(){
+  if(!_gdriveReady){alert('Google Drive is required for access requests.');return;}
+  if(_myRequestPending)return;
+  // Open note modal so user can add a reason before submitting
+  openReqNoteModal();
+}
+
+function openReqNoteModal(){
+  const ta=document.getElementById('reqNoteText');
+  const cc=document.getElementById('reqNoteChar');
+  if(ta){ta.value='';}
+  if(cc){cc.textContent='0/160';}
+  const m=document.getElementById('reqNoteModal');
+  if(m)m.classList.add('show');
+  setTimeout(()=>{if(ta)ta.focus();},120);
+}
+
+function closeReqNoteModal(){
+  const m=document.getElementById('reqNoteModal');
+  if(m)m.classList.remove('show');
+}
+
+async function submitRequestWithNote(){
+  const note=(document.getElementById('reqNoteText')?.value||'').trim();
+  closeReqNoteModal();
+  const btn=document.getElementById('lockRequestBtn');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Requesting…';}
+  try{
+    const r=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`,{headers:{'Cache-Control':'no-cache, no-store'}});
+    if(!r.ok)throw new Error('read fail');
+    const etag=r.headers.get('ETag')||r.headers.get('etag')||'';
+    const data=JSON.parse(await r.text());
+    const lock=data._lock||{};
+    const requests=lock.requests||[];
+    if(!requests.find(x=>x.user===currentUser)){
+      requests.push({user:currentUser,displayName:currentUserDisplay||currentUser,requestedAt:new Date().toISOString(),note:note||''});
+      lock.requests=requests;
+      data._lock=lock;
+      const ph={'Content-Type':'application/json'};
+      if(etag)ph['If-Match']=etag;
+      const pw=await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`,{method:'PATCH',headers:ph,body:JSON.stringify(data,null,2)});
+      if(!pw.ok)throw new Error('write fail');
+    }
+    _myRequestPending=true;
+    if(btn){btn.textContent='✅ Requested';btn.classList.add('requested');btn.disabled=true;}
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='🙋 Request Access';}
+    alert('Could not submit request. Please try again.');
+  }
+}
+
+async function _clearMyRequest(){
+  if(!_gdriveReady||!_myRequestPending)return;
+  _myRequestPending=false;
+  try{
+    const r=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`,{headers:{'Cache-Control':'no-cache, no-store'}});
+    if(!r.ok)return;
+    const etag=r.headers.get('ETag')||r.headers.get('etag')||'';
+    const data=JSON.parse(await r.text());
+    if(data._lock&&data._lock.requests){
+      data._lock.requests=data._lock.requests.filter(x=>x.user!==currentUser);
+      const ph={'Content-Type':'application/json'};if(etag)ph['If-Match']=etag;
+      await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`,{method:'PATCH',headers:ph,body:JSON.stringify(data,null,2)}).catch(()=>{});
+    }
+  }catch(e){}
+}
+
+function dismissEditRequestPopup(){
+  _erDismissedAt=Date.now();
+  const p=document.getElementById('editRequestPopup');
+  if(p)p.style.display='none';
+}
+
+// ─── ADMIN GRANT MODAL ────────────────────────────────────────────────────────
+function openAdminGrantModal(){
+  if(currentUserRole!=='admin')return;
+  const lockObj=_lockInfo;
+  const requests=(lockObj&&lockObj.requests)||[];
+  // Populate current editor
+  const curEl=document.getElementById('agmCurrentEditor');
+  const curName=document.getElementById('agmCurrentName');
+  if(lockObj&&lockObj.lockedBy){
+    if(curEl)curEl.style.display='';
+    if(curName)curName.textContent=(lockObj.displayName||lockObj.lockedBy);
+  } else {
+    if(curEl)curEl.style.display='none';
+  }
+  // Populate queue
+  const list=document.getElementById('agmQueueList');
+  if(list){
+    if(requests.length===0){
+      list.innerHTML='<div class="agm-empty">No pending requests right now.</div>';
+    } else {
+      list.innerHTML=requests.map(req=>{
+        const initials=(req.displayName||req.user).split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+        const ageSec=Math.round((Date.now()-new Date(req.requestedAt))/1000);
+        const ageLabel=ageSec<60?ageSec+'s ago':ageSec<3600?Math.round(ageSec/60)+'m ago':Math.round(ageSec/3600)+'h ago';
+        return `<div class="agm-requester">
+          <div class="agm-avatar">${initials}</div>
+          <div class="agm-info">
+            <div class="agm-name">${req.displayName||req.user}</div>
+            <div class="agm-meta">Requested ${ageLabel} · @${req.user}</div>
+            ${req.note?`<div style="font-size:10px;color:#2C2C2A;margin-top:3px;font-style:italic;background:#F5F3FF;border-radius:5px;padding:3px 7px">"${req.note}"</div>`:''}
+          </div>
+          <button class="agm-grant-btn" onclick="adminGrantTo('${req.user}','${(req.displayName||req.user).replace(/'/g,"\\'")}')">Grant Access</button>
+        </div>`;
+      }).join('');
+    }
+  }
+  const modal=document.getElementById('adminGrantModal');
+  if(modal)modal.classList.add('show');
+}
+
+function closeAdminGrantModal(){
+  const modal=document.getElementById('adminGrantModal');
+  if(modal)modal.classList.remove('show');
+}
+
+async function adminGrantTo(targetUser, targetDisplayName){
+  if(currentUserRole!=='admin')return;
+  const pw=prompt(`Re-enter your admin password to grant access to ${targetDisplayName}:`);
+  if(!pw)return;
+  const usersArr=getUsersArray()||[];
+  const uObj=usersArr.find(x=>x.username===currentUser);
+  if(uObj){
+    const ph=await hashPass(pw);
+    if(ph!==uObj.hash){alert('Incorrect password. Grant cancelled.');return;}
+  }
+  closeAdminGrantModal();
+  dismissEditRequestPopup();
+
+  // Write: clear current lock, set grantedTo so target auto-takes
+  try{
+    const r=await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`,{headers:{'Cache-Control':'no-cache, no-store'}});
+    if(!r.ok)throw new Error('read fail');
+    const etag=r.headers.get('ETag')||r.headers.get('etag')||'';
+    const data=JSON.parse(await r.text());
+    // Clear lock but leave a grantedTo marker so the target auto-claims it
+    data._lock={grantedTo:targetUser,grantedToDisplay:targetDisplayName,grantedAt:new Date().toISOString(),grantedBy:currentUser,requests:[]};
+    const ph={'Content-Type':'application/json'};if(etag)ph['If-Match']=etag;
+    const pw2=await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`,{method:'PATCH',headers:ph,body:JSON.stringify(data,null,2)});
+    if(!pw2.ok)throw new Error('write fail');
+    // Log it
+    actlog.push({id:aNid++,empId:'SYSTEM',name:currentUserDisplay,username:currentUser,displayName:currentUserDisplay,reqType:'System',action:'Edit Access Granted',dateReq:iso(getToday()),admin:currentUser,actionDate:isoNow(),note:`Granted to: ${targetDisplayName} (@${targetUser})`});
+    save();
+    _lockInfo=null;_isLockHolder=false;
+    clearInterval(_lockRenewInterval);_lockRenewInterval=null;
+    clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;
+    document.body.classList.remove('readonly-mode');
+    _updateLockBar(null);
+    _showGrantToast(`✅ Access granted to ${targetDisplayName}`);
+  }catch(e){
+    alert('Failed to grant access. Please try again.');
+  }
+}
+
+function _showGrantToast(msg){
+  const t=document.getElementById('refreshToast');
+  if(!t)return;
+  t.textContent=msg;
+  t.style.background='#0F6E56';
+  t.style.display='block';
+  clearTimeout(t._hideTimer);
+  t._hideTimer=setTimeout(()=>{t.style.display='none';t.style.background='';},5000);
+}
+
+function _renderEditRequestPopup(requests){
+  // Only show to the current lock holder
+  if(!_isLockHolder||!requests||requests.length===0){
+    const p=document.getElementById('editRequestPopup');
+    if(p)p.style.display='none';
+    return;
+  }
+  // Only re-show if there are NEW requests since last dismiss
+  const newestReq=requests.reduce((a,b)=>new Date(a.requestedAt)>new Date(b.requestedAt)?a:b);
+  const newestTime=new Date(newestReq.requestedAt).getTime();
+  if(newestTime<=_erDismissedAt) return; // no new requests since dismiss
+
+  const qEl=document.getElementById('erpQueue');
+  if(qEl){
+    qEl.innerHTML=requests.map(req=>{
+      const initials=(req.displayName||req.user).split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+      const ageSec=Math.round((Date.now()-new Date(req.requestedAt))/1000);
+      const ageLabel=ageSec<60?ageSec+'s ago':Math.round(ageSec/60)+'m ago';
+      return `<div class="erp-item"><div class="erp-avatar">${initials}</div><div style="flex:1;min-width:0"><span class="erp-name">${req.displayName||req.user}</span>${req.note?`<div style="font-size:9px;color:#5F5E5A;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">"${req.note}"</div>`:''}</div><span class="erp-time">${ageLabel}</span></div>`;
+    }).join('');
+  }
+  const p=document.getElementById('editRequestPopup');
+  if(p)p.style.display='block';
+}
+
+function _updateQueueBadge(requests,lockObj){
+  const badge=document.getElementById('lockQueueBadge');
+  const reqBtn=document.getElementById('lockRequestBtn');
+  const manageBtn=document.getElementById('lockManageBtn');
+  if(!badge)return;
+  // Show badge to the editor
+  if(_isLockHolder&&requests&&requests.length>0){
+    badge.textContent=requests.length+' waiting';
+    badge.style.display='inline-block';
+  } else {
+    badge.style.display='none';
+  }
+  // Show Manage Queue button to admins when there are pending requests and a lock exists
+  if(manageBtn){
+    const hasRequests=requests&&requests.length>0;
+    const lockActive=lockObj&&lockObj.lockedBy;
+    manageBtn.style.display=(currentUserRole==='admin'&&hasRequests&&lockActive)?'':'none';
+  }
+  // Update request button state for waiting users
+  if(reqBtn){
+    if(!lockObj||!lockObj.lockedBy||lockObj.lockedBy===currentUser){
+      // No lock or we're the editor — hide request button
+      reqBtn.style.display='none';
+      if(lockObj&&lockObj.lockedBy!==currentUser){}  // reset if we just got the lock
+    } else {
+      // Someone else holds the lock — show request button
+      reqBtn.style.display='';
+      if(_myRequestPending){
+        reqBtn.textContent='✅ Requested';
+        reqBtn.classList.add('requested');
+        reqBtn.disabled=true;
+      } else {
+        reqBtn.textContent='🙋 Request Access';
+        reqBtn.classList.remove('requested');
+        reqBtn.disabled=false;
+      }
+    }
+  }
 }
 
 async function _renewLockNow(){
@@ -2879,8 +3235,16 @@ async function _pollLock(){
   // Confirmed good read — reset miss counter (applies to all branches below)
   _missedPollCount=0;
 
-  // ── No lock on file ──────────────────────────────────────────────────────────
+  // ── No lock on file (or only a grant marker) ────────────────────────────────
   if(!lockObj||!lockObj.lockedBy){
+    // Check if admin granted access specifically to this user
+    if(lockObj&&lockObj.grantedTo&&lockObj.grantedTo===currentUser&&!_isLockHolder){
+      _showGrantToast('🎉 Admin granted you edit access! Taking lock…');
+      _myRequestPending=false;
+      // Small delay so toast is visible, then auto-take
+      setTimeout(()=>takeLock(),800);
+      return;
+    }
     if(_isLockHolder){
       // We hold the lock locally but Drive shows nothing — re-establish it.
       await _renewLockNow();
@@ -2888,7 +3252,7 @@ async function _pollLock(){
     }
     // No lock on Drive = nobody is editing = everyone is FREE.
     _lockInfo=null;
-    _updateLockBar(null);
+    _updateLockBar(lockObj||null);
     // Only remove readonly-mode if the user hasn't explicitly just released the lock.
     // Without this guard, the poll fires within 5s of release and flips back to edit mode.
     if(!_userReleasedLock){
@@ -3015,7 +3379,7 @@ function _startViewerCountdown(lockObj){
     }
     if(txt) txt.textContent='🔒 Read-only — '+editorName+' is editing ('+remLabel+actLabel+')';
     if(noticeMain) noticeMain.textContent='🔒 '+editorName+' is currently editing — Read-Only Mode';
-    if(noticeSub) noticeSub.textContent='All write actions are disabled. '+remLabel+' on the lock'+actLabel+'. Wait for '+editorName+' to release, or ask an admin to force-release.';
+    if(noticeSub) noticeSub.textContent='All write actions are disabled. '+remLabel+' on the lock'+actLabel+'. Wait for '+editorName+' to release, or use "🙋 Request Access" in the bar above, or ask an admin to force-release.';
   },1000);
 }
 
@@ -3037,6 +3401,10 @@ function _updateLockBar(lockObj){
   if(forceBtn)forceBtn.style.display='none';
   if(noticeBanner)noticeBanner.classList.remove('show');
 
+  const requests=(lockObj&&lockObj.requests)||[];
+  _updateQueueBadge(requests, lockObj);
+  _renderEditRequestPopup(requests);
+
   if(!lockObj||!lockObj.lockedBy){
     bar.className='lock-none';
     if(txt)txt.textContent='✏️ No one is editing — click "Take Edit Access" to start';
@@ -3046,9 +3414,13 @@ function _updateLockBar(lockObj){
       takeBtn.textContent='Take Edit Access';
       takeBtn.setAttribute('onclick','takeLock()');
     }
+    _myRequestPending=false; // lock freed — clear our request state
+    const reqBtn=document.getElementById('lockRequestBtn');
+    if(reqBtn){reqBtn.style.display='none';}
   }else if(lockObj.lockedBy===currentUser){
     bar.className='lock-self';
-    if(txt)txt.textContent='🔒 You are editing — others are in read-only mode';
+    const waitCount=requests.length;
+    if(txt)txt.textContent='🔒 You are editing'+(waitCount>0?' — '+waitCount+' user'+(waitCount>1?'s':'')+' waiting':' — others are in read-only mode');
     if(takeBtn){takeBtn.style.display='';takeBtn.className='lock-btn lock-release';takeBtn.textContent='Release Edit Lock';takeBtn.setAttribute('onclick','releaseLock()');}
     // Editor countdown is handled by _startCountdown() called from _startRenewInterval()
   }else{
@@ -3676,12 +4048,36 @@ function scheduledOn(ds,sh,pool,schedMap){
 
 // ─── NAVIGATION ──────────────────────────────────────────────────────────────
 const PAGE_TITLES={home:'Home',calendar:'Calendar',schedule:'Work Schedule',reports:'Reports',leave:'Leave Entry',employees:'Employees',activity:'Activity Log',settings:'Settings',manpower:'Manpower Ratio'};
+
+// Filter IDs to reset per page when navigating away
+const PAGE_FILTERS={
+  home:    ['hShift','hUnit','hLeaveType'],
+  calendar:['cShift','cUnit','cLeaveType'],
+  schedule:['schedUnit'],
+  reports: ['rptUnit2','rptRange2'],
+  leave:   ['leaveSearch','leaveStatusFilter','lvLeaveType','lvAdminFilter','pendingSearch','pendingTypeFilter'],
+  employees:['empSearch','beUnit','beType','beRole','beShift'],
+  activity:['actType','actAction'],
+  manpower:[]
+};
+
+function clearPageFilters(name){
+  const ids=PAGE_FILTERS[name]||[];
+  ids.forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    if(el.tagName==='SELECT') el.value=el.options[0]?.value||'all';
+    else el.value='';
+  });
+}
+
 function goPage(name,btn){
-  // SECURITY: If leaving the settings page, wipe sensitive credential fields
-  // so they are never left visible on an unattended screen.
+  // Clear filters on the page we're leaving + security wipe if leaving settings
   const currentPage=document.querySelector('.page.active');
-  if(currentPage&&currentPage.id==='page-settings'&&name!=='settings'){
-    _clearCredentialFields();
+  if(currentPage){
+    const leavingName=currentPage.id.replace('page-','');
+    if(leavingName!==name) clearPageFilters(leavingName);
+    if(currentPage.id==='page-settings'&&name!=='settings') _clearCredentialFields();
   }
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));

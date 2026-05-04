@@ -50,6 +50,16 @@ body{font-family:system-ui,sans-serif;color:#2C2C2A;min-height:100vh}
 /* ═══ MAIN ═══ */
 .main-area{flex:1;min-width:0;display:flex;flex-direction:column}
 .topbar{background:#fff;border-bottom:0.5px solid #D3D1C7;padding:7px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:50}
+/* Notification bell */
+.notif-bell-wrap{position:relative;display:flex;align-items:center}
+#notifBellBtn{background:none;border:none;cursor:pointer;padding:4px;border-radius:7px;display:flex;align-items:center;justify-content:center;transition:background .15s}
+#notifBellBtn:hover{background:#F1EFE8}
+#notifBellBtn svg{display:block}
+#notifBellDot{display:none;position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:#E03B3B;border:2px solid #fff;animation:bellPulse 1.4s ease-in-out infinite}
+@keyframes bellPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.35);opacity:.7}}
+/* Cancel request button */
+.lock-cancel{background:#F5E6E6;color:#A32D2D;border:0.5px solid #E8AAAA}
+.lock-cancel:hover{background:#FADADD}
 .topbar-title{font-size:13px;font-weight:500}
 .page-content{flex:1;min-width:0;padding:1rem;overflow-y:auto;overflow-x:visible}
 .page{display:none}.page.active{display:block}
@@ -276,32 +286,60 @@ body{background:linear-gradient(135deg,#EEF2F7 0%,#E8EDF5 100%);background-attac
 #pendingSection .card-head{border-bottom:1px solid #EDBE8A}
 
 /* ═══ LOCK BAR ═══ */
-#lockBar{height:34px;flex-shrink:0;display:flex;align-items:center;padding:0 14px;gap:8px;font-size:11px;font-weight:500;border-bottom:1px solid rgba(0,0,0,.08);transition:background .3s}
-#lockBar.lock-none{background:#F0F7F4;color:#085041}
-#lockBar.lock-self{background:#EAF3FB;color:#0C447C}
-#lockBar.lock-other{background:#FFF4F4;color:#791F1F}
-#lockBar.lock-loading{background:#FDF6E3;color:#7A5500}
-#lockBar .lock-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+#lockBar{height:38px;flex-shrink:0;display:flex;align-items:center;padding:0 14px;gap:0;font-size:11px;font-weight:500;border-bottom:1px solid rgba(0,0,0,.1);transition:background .3s,border-color .3s}
+#lockBar.lock-none{background:#F0F7F4;color:#085041;border-bottom-color:#C5E8DC}
+#lockBar.lock-self{background:#EAF3FB;color:#0C447C;border-bottom-color:#A8CEF0}
+#lockBar.lock-other{background:#FFF4F4;color:#791F1F;border-bottom-color:#F5C0C0}
+#lockBar.lock-loading{background:#FDF6E3;color:#7A5500;border-bottom-color:#E0D0A0}
+#lockBar .lock-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-right:8px}
 #lockBar.lock-none .lock-dot{background:#1D9E75}
 #lockBar.lock-self .lock-dot{background:#185FA5}
 #lockBar.lock-other .lock-dot{background:#A32D2D}
 #lockBar.lock-loading .lock-dot{background:#E0A800;animation:lock-pulse 1s ease-in-out infinite}
 @keyframes lock-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
-.lock-spinner{width:12px;height:12px;border:2px solid rgba(122,85,0,.25);border-top-color:#E0A800;border-radius:50%;animation:lock-spin .7s linear infinite;flex-shrink:0}
+.lock-spinner{width:12px;height:12px;border:2px solid rgba(122,85,0,.25);border-top-color:#E0A800;border-radius:50%;animation:lock-spin .7s linear infinite;flex-shrink:0;margin-right:8px}
 .gdrive-spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:lock-spin .7s linear infinite;flex-shrink:0}
 .gdrive-spinner-dark{width:13px;height:13px;border:2px solid rgba(27,58,107,.2);border-top-color:#1B3A6B;border-radius:50%;animation:lock-spin .7s linear infinite;flex-shrink:0}
 @keyframes lock-spin{to{transform:rotate(360deg)}}
-.lock-btn{border:none;border-radius:5px;padding:3px 10px;font-size:10px;cursor:pointer;font-weight:500}
+/* Lock bar text: username + status label */
+#lockBarText{font-size:11px;font-weight:600;white-space:nowrap;flex-shrink:0}
+/* Divider between label and buttons */
+.lb-sep{width:1px;height:18px;background:currentColor;opacity:.18;margin:0 10px;flex-shrink:0}
+/* Timers group */
+#lockTimers{display:none;align-items:center;gap:0;margin-left:auto;padding-left:10px;border-left:1px solid rgba(0,0,0,.1);font-size:10px;color:#888780;white-space:nowrap;flex-shrink:0}
+#lockTimers .lt-item{display:flex;flex-direction:column;align-items:center;padding:0 10px;line-height:1.2}
+#lockTimers .lt-label{font-size:8px;text-transform:uppercase;letter-spacing:.05em;opacity:.7}
+#lockTimers .lt-val{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;color:#2C2C2A}
+#lockTimers .lt-div{width:1px;height:24px;background:rgba(0,0,0,.12);flex-shrink:0}
+/* Buttons */
+.lock-btn{border:none;border-radius:5px;padding:4px 11px;font-size:10px;cursor:pointer;font-weight:600;flex-shrink:0;transition:opacity .15s,background .15s}
 .lock-take{background:#1B3A6B;color:#fff}
+.lock-take:hover{background:#0F2A50}
 .lock-release{background:#E1F5EE;color:#085041;border:0.5px solid #5DCAA5}
+.lock-release:hover{background:#C5EAD8}
 .lock-force{background:#FCEBEB;color:#791F1F;border:0.5px solid #F5C0C0}
-.lock-btn:disabled{opacity:.55;cursor:not-allowed}
-#lockCountdown{font-size:10px;color:#888780;margin-left:4px}
+.lock-force:hover{background:#F5D0D0}
+.lock-btn:disabled{opacity:.45;cursor:not-allowed}
+/* Lock bar button group */
+#lockBtnGroup{display:flex;align-items:center;gap:6px;margin-left:10px}
+/* Read mode pill (non-clickable label) */
+#lockReadModePill{display:none;align-items:center;gap:4px;background:#FFF0F0;color:#791F1F;border:0.5px solid #F5C0C0;border-radius:5px;padding:3px 9px;font-size:10px;font-weight:600;white-space:nowrap;flex-shrink:0}
+#lockReadModePill svg{flex-shrink:0}
+/* Self-mode pill */
+#lockEditModePill{display:none;align-items:center;gap:4px;background:#E1F5EE;color:#085041;border:0.5px solid #5DCAA5;border-radius:5px;padding:3px 9px;font-size:10px;font-weight:600;white-space:nowrap;flex-shrink:0}
 /* Request Edit Access */
 .lock-request{background:#F5E6FB;color:#5B2D8E;border:0.5px solid #C89EE8}
 .lock-request:hover{background:#EBD5F5}
 .lock-request.requested{background:#E8F5E9;color:#2E7D32;border:0.5px solid #81C784;cursor:default}
-#lockQueueBadge{display:none;background:#BA7517;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle}
+/* Grant Access (for staff who are editing — lets them release to the requester) */
+.lock-grant{background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB}
+.lock-grant:hover{background:#C8DEF5}
+.lock-manage{background:#5B2D8E;color:#fff;border:none}
+.lock-manage:hover{background:#421F6E}
+#lockQueueBadge{display:none;background:#BA7517;color:#fff;font-size:8px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:3px;vertical-align:middle}
+/* Cancel request */
+.lock-cancel{background:#F5E6E6;color:#A32D2D;border:0.5px solid #E8AAAA}
+.lock-cancel:hover{background:#FADADD}
 /* Edit request notification popup */
 #editRequestPopup{display:none;position:fixed;bottom:72px;right:20px;z-index:600;background:#fff;border-radius:12px;box-shadow:0 6px 28px rgba(0,0,0,.18);border:1px solid #C89EE8;width:290px;overflow:hidden;animation:erSlideIn .25s ease}
 @keyframes erSlideIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
@@ -538,7 +576,15 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 <div class="main-area">
   <div class="topbar">
     <span class="topbar-title" id="topbarTitle">Home</span>
-    <span style="font-size:10px;color:#888780" id="topbarUser"></span>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="notif-bell-wrap">
+        <button id="notifBellBtn" onclick="onBellClick()" title="Edit access requests">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#5F5E5A"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+        <span id="notifBellDot"></span>
+      </div>
+      <span style="font-size:10px;color:#888780" id="topbarUser"></span>
+    </div>
   </div>
   <!-- Google Drive status banner -->
   <div id="folderBanner">
@@ -550,13 +596,39 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
   <!-- Lock status bar (always visible, reserved space) -->
   <div id="lockBar" class="lock-none">
     <span class="lock-dot"></span>
-    <span id="lockBarText">✏️ No one is editing</span>
-    <button id="lockTakeBtn" class="lock-btn lock-take" onclick="takeLock()">Take Edit Access</button>
-    <button id="lockRequestBtn" class="lock-btn lock-request" onclick="requestEditAccess()" style="display:none">🙋 Request Access</button>
-    <span id="lockQueueBadge"></span>
-    <span id="lockCountdown"></span>
-    <button id="lockForceBtn" class="lock-btn lock-force" onclick="forceReleaseLock()" style="display:none">Force Release</button>
-    <button id="lockManageBtn" class="lock-btn lock-manage" onclick="openAdminGrantModal()" style="display:none">🛡️ Manage Queue</button>
+    <span id="lockBarText">No one is editing</span>
+    <div class="lb-sep"></div>
+    <!-- Mode pills -->
+    <span id="lockReadModePill">
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M4 8h8M8 4v8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Read-Only Mode
+    </span>
+    <span id="lockEditModePill">
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M11.5 2a1.5 1.5 0 012.12 2.12l-8.5 8.5-2.83.71.71-2.83 8.5-8.5z" fill="currentColor"/></svg>
+      Editing
+    </span>
+    <!-- Button group -->
+    <div id="lockBtnGroup">
+      <button id="lockTakeBtn" class="lock-btn lock-take" onclick="takeLock()" style="display:none">Take Edit Access</button>
+      <button id="lockReleaseBtn" class="lock-btn lock-release" onclick="releaseLock()" style="display:none">Release</button>
+      <button id="lockForceBtn" class="lock-btn lock-force" onclick="forceReleaseLock()" style="display:none">Force Release</button>
+      <button id="lockRequestBtn" class="lock-btn lock-request" onclick="requestEditAccess()" style="display:none">🙋 Request Access</button>
+      <button id="lockGrantBtn" class="lock-btn lock-grant" onclick="_grantAccessToFirstRequester()" style="display:none">✅ Grant Access</button>
+      <button id="lockCancelRequestBtn" class="lock-btn lock-cancel" onclick="cancelEditRequest()" style="display:none">✕ Cancel Request</button>
+      <button id="lockManageBtn" class="lock-btn lock-manage" onclick="openAdminGrantModal()" style="display:none">🛡 Manage Queue<span id="lockQueueBadge"></span></button>
+    </div>
+    <!-- Timers -->
+    <div id="lockTimers">
+      <div class="lt-item">
+        <span class="lt-label">Time Left</span>
+        <span class="lt-val" id="lockTimeLeft">—</span>
+      </div>
+      <div class="lt-div"></div>
+      <div class="lt-item">
+        <span class="lt-label">Active</span>
+        <span class="lt-val" id="lockTimeActive">—</span>
+      </div>
+    </div>
   </div>
   <!-- Request Access Note Modal -->
   <div id="reqNoteModal">
@@ -610,13 +682,10 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
       </div>
     </div>
   </div>
-  <!-- Editing notice banner — only visible to OTHER users when someone holds the lock -->
-  <div id="editingNoticeBanner">
-    <span class="en-pulse"></span>
-    <div>
-      <div class="en-main" id="editingNoticeMain">🔒 Someone is currently editing</div>
-      <div class="en-sub" id="editingNoticeSub">All write actions are disabled. Please wait until the editor releases the lock.</div>
-    </div>
+  <!-- editingNoticeBanner: kept as hidden stub; lockBar now handles this UI -->
+  <div id="editingNoticeBanner" style="display:none!important">
+    <div id="editingNoticeMain"></div>
+    <div id="editingNoticeSub"></div>
   </div>
   <!-- FIX: storage quota warning banner — shown dynamically by checkStorageQuota() -->
   <div id="storageQuotaWarn" style="display:none;font-size:10px;font-weight:500;padding:6px 16px;text-align:center;border-bottom:0.5px solid rgba(0,0,0,.08)"></div>
@@ -2687,6 +2756,7 @@ let _lockRenewInterval=null;
 let _lockPollInterval=null;
 let _dataRefreshInterval=null;
 let _lockCountdownInterval=null;
+let _activeTimerInterval=null;
 let _isLockHolder=false;
 let _isLockLoading=false;   // true while takeLock() is in flight — blocks poll from wiping loading UI
 let _isReleaseLoading=false; // true while releaseLock() is in flight — blocks poll and freezes bar
@@ -2707,7 +2777,9 @@ function initLockSystem(){
 function stopLockTimers(){
   clearInterval(_lockRenewInterval);clearInterval(_lockPollInterval);
   clearInterval(_dataRefreshInterval);clearInterval(_lockCountdownInterval);
+  clearInterval(_viewerCountdownInterval);clearInterval(_activeTimerInterval);
   _lockRenewInterval=null;_lockPollInterval=null;_dataRefreshInterval=null;_lockCountdownInterval=null;
+  _viewerCountdownInterval=null;_activeTimerInterval=null;
   _renewFailCount=0;
 }
 
@@ -2716,6 +2788,7 @@ function _setLockLoading(on){
   const bar=document.getElementById('lockBar');
   const txt=document.getElementById('lockBarText');
   const takeBtn=document.getElementById('lockTakeBtn');
+  const releaseBtn=document.getElementById('lockReleaseBtn');
   const dot=bar?bar.querySelector('.lock-dot'):null;
   // Remove/add existing spinner
   const existingSpinner=bar?bar.querySelector('.lock-spinner'):null;
@@ -2723,6 +2796,7 @@ function _setLockLoading(on){
     if(bar)bar.className='lock-loading';
     if(txt)txt.textContent='Acquiring edit access…';
     if(takeBtn){takeBtn.disabled=true;}
+    if(releaseBtn){releaseBtn.disabled=true;}
     if(dot)dot.style.display='none';
     if(!existingSpinner&&bar){
       const sp=document.createElement('span');sp.className='lock-spinner';
@@ -2732,6 +2806,7 @@ function _setLockLoading(on){
     if(existingSpinner)existingSpinner.remove();
     if(dot)dot.style.display='';
     if(takeBtn){takeBtn.disabled=false;}
+    if(releaseBtn){releaseBtn.disabled=false;}
   }
 }
 
@@ -2740,12 +2815,14 @@ function _setReleaseLoading(on){
   const bar=document.getElementById('lockBar');
   const txt=document.getElementById('lockBarText');
   const takeBtn=document.getElementById('lockTakeBtn');
+  const releaseBtn=document.getElementById('lockReleaseBtn');
   const dot=bar?bar.querySelector('.lock-dot'):null;
   const existingSpinner=bar?bar.querySelector('.lock-spinner'):null;
   if(on){
     if(bar)bar.className='lock-loading';
     if(txt)txt.textContent='Releasing edit lock…';
     if(takeBtn){takeBtn.disabled=true;}
+    if(releaseBtn){releaseBtn.disabled=true;}
     if(dot)dot.style.display='none';
     if(!existingSpinner&&bar){
       const sp=document.createElement('span');sp.className='lock-spinner';
@@ -2755,6 +2832,7 @@ function _setReleaseLoading(on){
     if(existingSpinner)existingSpinner.remove();
     if(dot)dot.style.display='';
     if(takeBtn){takeBtn.disabled=false;}
+    if(releaseBtn){releaseBtn.disabled=false;}
   }
 }
 
@@ -2842,6 +2920,9 @@ async function takeLock(){
   _lockInfo=lockObj;
   _isLockHolder=true;
   _myRequestPending=false; // we now have the lock — clear request state
+  _erShownRequests=new Set(); // reset dismissed notifications for fresh session
+  _erDismissedAt=0;
+  _setBellLit(false);
   _updateLockBar(lockObj);
   document.body.classList.remove('readonly-mode');
   _startRenewInterval();
@@ -2856,6 +2937,7 @@ async function releaseLock(){
   clearInterval(_lockRenewInterval);_lockRenewInterval=null;
   clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;
   clearInterval(_viewerCountdownInterval);_viewerCountdownInterval=null;
+  clearInterval(_activeTimerInterval);_activeTimerInterval=null;
   if(_gdriveReady) await _gdriveClearLock();
   _lockInfo=null;
   // 1.5s pause: lets Drive clear propagate and prevents the next poll from re-claiming the lock
@@ -2894,12 +2976,45 @@ async function forceReleaseLock(){
   save(); // bumps savedAt/pingAt so viewers pick up the cleared lock via burst-poll
 }
 
-// ─── EDIT ACCESS REQUEST QUEUE ────────────────────────────────────────────────
+// ─── NOTIFICATION BELL ───────────────────────────────────────────────────────
+function _setBellLit(on){
+  const dot=document.getElementById('notifBellDot');
+  if(dot) dot.style.display=on?'block':'none';
+}
+
+function onBellClick(){
+  // For the editor: open the request popup
+  // For the admin: open the manage queue modal
+  // For others with a pending request: nothing extra (just cosmetic)
+  if(_isLockHolder){
+    const p=document.getElementById('editRequestPopup');
+    if(p) p.style.display=p.style.display==='block'?'none':'block';
+  } else if(currentUserRole==='admin'&&_lockInfo&&_lockInfo.lockedBy){
+    openAdminGrantModal();
+  }
+}
+
+// ─── CANCEL REQUEST ──────────────────────────────────────────────────────────
+async function cancelEditRequest(){
+  const btn=document.getElementById('lockCancelRequestBtn');
+  const reqBtn=document.getElementById('lockRequestBtn');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Cancelling…';}
+  await _clearMyRequest();
+  _myRequestPending=false;
+  if(reqBtn){
+    reqBtn.style.display='';
+    reqBtn.textContent='🙋 Request Access';
+    reqBtn.classList.remove('requested');
+    reqBtn.disabled=false;
+  }
+  if(btn){btn.style.display='none';btn.disabled=false;btn.textContent='✕ Cancel Request';}
+}
 // Requests are stored in _lock.requests = [{user, displayName, requestedAt}]
 // The current editor sees a popup; waiting users see their status in the lock bar.
 
 let _myRequestPending = false;  // true if the current user has a pending request
 let _erDismissedAt = 0;          // timestamp when the editor last dismissed the popup
+let _erShownRequests = new Set(); // requestedAt values the editor has already been notified about
 
 async function requestEditAccess(){
   if(!_gdriveReady){alert('Google Drive is required for access requests.');return;}
@@ -2969,7 +3084,14 @@ async function _clearMyRequest(){
 }
 
 function dismissEditRequestPopup(){
+  // Mark all currently shown requests as seen so they don't re-trigger
+  const items=document.querySelectorAll('#erpQueue .erp-item');
+  items.forEach(el=>{
+    const ts=el.dataset.ts;
+    if(ts) _erShownRequests.add(ts);
+  });
   _erDismissedAt=Date.now();
+  _setBellLit(false);
   const p=document.getElementById('editRequestPopup');
   if(p)p.style.display='none';
 }
@@ -3021,15 +3143,16 @@ function closeAdminGrantModal(){
 
 async function adminGrantTo(targetUser, targetDisplayName){
   if(currentUserRole!=='admin')return;
+  // Close modal first so it doesn't block the native prompt dialog
+  closeAdminGrantModal();
   const pw=prompt(`Re-enter your admin password to grant access to ${targetDisplayName}:`);
   if(!pw)return;
   const usersArr=getUsersArray()||[];
   const uObj=usersArr.find(x=>x.username===currentUser);
   if(uObj){
     const ph=await hashPass(pw);
-    if(ph!==uObj.hash){alert('Incorrect password. Grant cancelled.');return;}
+    if(ph!==uObj.hash){alert('Incorrect password. Grant cancelled.');openAdminGrantModal();return;}
   }
-  closeAdminGrantModal();
   dismissEditRequestPopup();
 
   // Write: clear current lock, set grantedTo so target auto-takes
@@ -3051,10 +3174,45 @@ async function adminGrantTo(targetUser, targetDisplayName){
     clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;
     document.body.classList.remove('readonly-mode');
     _updateLockBar(null);
+    _setBellLit(false);
     _showGrantToast(`✅ Access granted to ${targetDisplayName}`);
+    // Re-open modal so admin can see the queue history with granted marker
+    _openAdminGrantModalWithHistory(targetUser);
   }catch(e){
     alert('Failed to grant access. Please try again.');
   }
+}
+
+function _openAdminGrantModalWithHistory(grantedUser){
+  // Re-render modal but mark the granted user — uses last known _lockInfo requests
+  const lockObj=_lockInfo;
+  const requests=(lockObj&&lockObj.requests)||[];
+  const curEl=document.getElementById('agmCurrentEditor');
+  if(curEl)curEl.style.display='none';
+  const list=document.getElementById('agmQueueList');
+  if(list){
+    if(requests.length===0){
+      list.innerHTML=`<div class="agm-empty">✅ Access granted to ${grantedUser}. Queue is now cleared.</div>`;
+    } else {
+      list.innerHTML=requests.map(req=>{
+        const initials=(req.displayName||req.user).split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+        const ageSec=Math.round((Date.now()-new Date(req.requestedAt))/1000);
+        const ageLabel=ageSec<60?ageSec+'s ago':ageSec<3600?Math.round(ageSec/60)+'m ago':Math.round(ageSec/3600)+'h ago';
+        const wasGranted=req.user===grantedUser;
+        return `<div class="agm-requester" style="${wasGranted?'background:#E8F5E9;border-color:#81C784':''}">
+          <div class="agm-avatar" style="${wasGranted?'background:#C8E6C9;color:#2E7D32':''}">${initials}</div>
+          <div class="agm-info">
+            <div class="agm-name">${req.displayName||req.user}${wasGranted?' <span style="color:#2E7D32;font-size:10px">✅ Granted</span>':''}</div>
+            <div class="agm-meta">Requested ${ageLabel} · @${req.user}</div>
+            ${req.note?`<div style="font-size:10px;color:#2C2C2A;margin-top:3px;font-style:italic;background:#F5F3FF;border-radius:5px;padding:3px 7px">"${req.note}"</div>`:''}
+          </div>
+          ${wasGranted?'<span style="font-size:11px;color:#2E7D32;font-weight:600">✅ Access Sent</span>':`<button class="agm-grant-btn" onclick="adminGrantTo('${req.user}','${(req.displayName||req.user).replace(/'/g,"\\'")}')">Grant Access</button>`}
+        </div>`;
+      }).join('');
+    }
+  }
+  const modal=document.getElementById('adminGrantModal');
+  if(modal)modal.classList.add('show');
 }
 
 function _showGrantToast(msg){
@@ -3068,67 +3226,53 @@ function _showGrantToast(msg){
 }
 
 function _renderEditRequestPopup(requests){
+  const p=document.getElementById('editRequestPopup');
   // Only show to the current lock holder
   if(!_isLockHolder||!requests||requests.length===0){
-    const p=document.getElementById('editRequestPopup');
     if(p)p.style.display='none';
     return;
   }
-  // Only re-show if there are NEW requests since last dismiss
-  const newestReq=requests.reduce((a,b)=>new Date(a.requestedAt)>new Date(b.requestedAt)?a:b);
-  const newestTime=new Date(newestReq.requestedAt).getTime();
-  if(newestTime<=_erDismissedAt) return; // no new requests since dismiss
-
-  const qEl=document.getElementById('erpQueue');
-  if(qEl){
-    qEl.innerHTML=requests.map(req=>{
-      const initials=(req.displayName||req.user).split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-      const ageSec=Math.round((Date.now()-new Date(req.requestedAt))/1000);
-      const ageLabel=ageSec<60?ageSec+'s ago':Math.round(ageSec/60)+'m ago';
-      return `<div class="erp-item"><div class="erp-avatar">${initials}</div><div style="flex:1;min-width:0"><span class="erp-name">${req.displayName||req.user}</span>${req.note?`<div style="font-size:9px;color:#5F5E5A;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">"${req.note}"</div>`:''}</div><span class="erp-time">${ageLabel}</span></div>`;
-    }).join('');
+  // Check if there are any requests the editor hasn't dismissed yet
+  const newRequests=requests.filter(req=>!_erShownRequests.has(req.requestedAt));
+  if(newRequests.length===0){
+    // All requests already seen/dismissed — keep popup hidden but update content silently
+    if(p&&p.style.display==='block'){
+      // Popup is open (editor hasn't dismissed) — refresh the content in place
+      _fillErpQueue(requests);
+    }
+    return;
   }
-  const p=document.getElementById('editRequestPopup');
+  // There are new unseen requests — show/keep popup open
+  _fillErpQueue(requests);
   if(p)p.style.display='block';
+}
+
+function _fillErpQueue(requests){
+  const qEl=document.getElementById('erpQueue');
+  if(!qEl)return;
+  qEl.innerHTML=requests.map(req=>{
+    const initials=(req.displayName||req.user).split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    const ageSec=Math.round((Date.now()-new Date(req.requestedAt))/1000);
+    const ageLabel=ageSec<60?ageSec+'s ago':Math.round(ageSec/60)+'m ago';
+    return `<div class="erp-item" data-ts="${req.requestedAt}"><div class="erp-avatar">${initials}</div><div style="flex:1;min-width:0"><span class="erp-name">${req.displayName||req.user}</span>${req.note?`<div style="font-size:9px;color:#5F5E5A;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">"${req.note}"</div>`:''}</div><span class="erp-time">${ageLabel}</span></div>`;
+  }).join('');
 }
 
 function _updateQueueBadge(requests,lockObj){
   const badge=document.getElementById('lockQueueBadge');
-  const reqBtn=document.getElementById('lockRequestBtn');
-  const manageBtn=document.getElementById('lockManageBtn');
   if(!badge)return;
-  // Show badge to the editor
-  if(_isLockHolder&&requests&&requests.length>0){
-    badge.textContent=requests.length+' waiting';
+
+  // Bell: light up for editor when there are requests, or for admin when requests exist
+  const hasRequests=requests&&requests.length>0;
+  const lockActive=lockObj&&lockObj.lockedBy;
+  _setBellLit(hasRequests&&lockActive&&(_isLockHolder||currentUserRole==='admin'));
+
+  // Queue badge (editor only)
+  if(_isLockHolder&&hasRequests){
+    badge.textContent=' '+requests.length;
     badge.style.display='inline-block';
   } else {
     badge.style.display='none';
-  }
-  // Show Manage Queue button to admins when there are pending requests and a lock exists
-  if(manageBtn){
-    const hasRequests=requests&&requests.length>0;
-    const lockActive=lockObj&&lockObj.lockedBy;
-    manageBtn.style.display=(currentUserRole==='admin'&&hasRequests&&lockActive)?'':'none';
-  }
-  // Update request button state for waiting users
-  if(reqBtn){
-    if(!lockObj||!lockObj.lockedBy||lockObj.lockedBy===currentUser){
-      // No lock or we're the editor — hide request button
-      reqBtn.style.display='none';
-      if(lockObj&&lockObj.lockedBy!==currentUser){}  // reset if we just got the lock
-    } else {
-      // Someone else holds the lock — show request button
-      reqBtn.style.display='';
-      if(_myRequestPending){
-        reqBtn.textContent='✅ Requested';
-        reqBtn.classList.add('requested');
-        reqBtn.disabled=true;
-      } else {
-        reqBtn.textContent='🙋 Request Access';
-        reqBtn.classList.remove('requested');
-        reqBtn.disabled=false;
-      }
-    }
   }
 }
 
@@ -3194,16 +3338,14 @@ function _startCountdown(){
     if(!_lockInfo||!_isLockHolder){clearInterval(_lockCountdownInterval);_lockCountdownInterval=null;return;}
     const remMs=Math.max(0,new Date(_lockInfo.expiresAt)-Date.now());
     const remSec=Math.ceil(remMs/1000);
-    const el=document.getElementById('lockCountdown');
+    const el=document.getElementById('lockTimeLeft');
     if(!el)return;
-    if(remSec<=30){
-      el.textContent='⚠ lock expires in '+remSec+'s';
-      el.style.color='#A32D2D';el.style.fontWeight='700';
-    } else {
-      const m=Math.floor(remSec/60),s=remSec%60;
-      el.textContent='('+m+':'+(s<10?'0':'')+s+' left)';
-      el.style.color='#888780';el.style.fontWeight='';
-    }
+    const m=Math.floor(remSec/60),s=remSec%60;
+    el.textContent=m+':'+(s<10?'0':'')+s;
+    el.style.color=remSec<=30?'#A32D2D':'';
+    el.style.fontWeight=remSec<=30?'800':'';
+    // Also keep active timer ticking
+    if(_lockInfo&&_lockInfo.since)_updateActiveTimer(_lockInfo.since);
   },1000);
 }
 
@@ -3360,26 +3502,17 @@ function _startViewerCountdown(lockObj){
   _viewerCountdownInterval=setInterval(()=>{
     const remMs=Math.max(0,new Date(lockObj.expiresAt)-Date.now());
     const remSec=Math.ceil(remMs/1000);
-    const editorName=lockObj.displayName||lockObj.lockedBy;
-    const txt=document.getElementById('lockBarText');
-    const noticeMain=document.getElementById('editingNoticeMain');
-    const noticeSub=document.getElementById('editingNoticeSub');
-    // Time remaining label
-    let remLabel;
-    if(remSec<=0){remLabel='expiring…';}
-    else if(remSec<60){remLabel=remSec+'s left';}
-    else{const m=Math.floor(remSec/60),s=remSec%60;remLabel=m+':'+(s<10?'0':'')+s+' left';}
-    // Last activity label
-    let actLabel='';
-    if(lockObj.lastActivity){
-      const ageSec=Math.round((Date.now()-new Date(lockObj.lastActivity))/1000);
-      if(ageSec<5){actLabel=' · active now';}
-      else if(ageSec<60){actLabel=' · last active '+ageSec+'s ago';}
-      else{const am=Math.round(ageSec/60);actLabel=' · last active '+am+'m ago';}
+    // Update Time Left display
+    const tlEl=document.getElementById('lockTimeLeft');
+    if(tlEl){
+      const m=Math.floor(remSec/60),s=remSec%60;
+      tlEl.textContent=m+':'+(s<10?'0':'')+s;
+      tlEl.style.color=remSec<=30?'#A32D2D':'';
     }
-    if(txt) txt.textContent='🔒 Read-only — '+editorName+' is editing ('+remLabel+actLabel+')';
-    if(noticeMain) noticeMain.textContent='🔒 '+editorName+' is currently editing — Read-Only Mode';
-    if(noticeSub) noticeSub.textContent='All write actions are disabled. '+remLabel+' on the lock'+actLabel+'. Wait for '+editorName+' to release, or use "🙋 Request Access" in the bar above, or ask an admin to force-release.';
+    // Update Active timer
+    if(lockObj.since)_updateActiveTimer(lockObj.since);
+    // Stop if expired
+    if(remSec<=0){clearInterval(_viewerCountdownInterval);_viewerCountdownInterval=null;}
   },1000);
 }
 
@@ -3389,59 +3522,132 @@ function _updateLockBar(lockObj){
   const txt=document.getElementById('lockBarText');
   const takeBtn=document.getElementById('lockTakeBtn');
   const forceBtn=document.getElementById('lockForceBtn');
-  const countdown=document.getElementById('lockCountdown');
+  const releaseBtn=document.getElementById('lockReleaseBtn');
+  const requestBtn=document.getElementById('lockRequestBtn');
+  const grantBtn=document.getElementById('lockGrantBtn');
+  const cancelReqBtn=document.getElementById('lockCancelRequestBtn');
+  const manageBtn=document.getElementById('lockManageBtn');
+  const readPill=document.getElementById('lockReadModePill');
+  const editPill=document.getElementById('lockEditModePill');
+  const timers=document.getElementById('lockTimers');
+  const timeLeft=document.getElementById('lockTimeLeft');
+  const timeActive=document.getElementById('lockTimeActive');
+  // Stub refs (kept hidden, no longer shown)
   const noticeBanner=document.getElementById('editingNoticeBanner');
   const noticeMain=document.getElementById('editingNoticeMain');
   const noticeSub=document.getElementById('editingNoticeSub');
   if(!bar)return;
+
   // Stop any previous viewer countdown
   clearInterval(_viewerCountdownInterval);_viewerCountdownInterval=null;
+
+  // Reset all buttons and pills first
+  const allBtns=[takeBtn,forceBtn,releaseBtn,requestBtn,grantBtn,cancelReqBtn,manageBtn];
+  allBtns.forEach(b=>{if(b)b.style.display='none';});
+  if(readPill)readPill.style.display='none';
+  if(editPill)editPill.style.display='none';
+  if(timers)timers.style.display='none';
+  if(timeLeft)timeLeft.textContent='—';
+  if(timeActive)timeActive.textContent='—';
+  // Keep banner stub hidden
+  if(noticeBanner){noticeBanner.style.display='none';}
+
   bar.className='lock-none';
-  if(countdown){countdown.textContent='';countdown.style.color='';countdown.style.fontWeight='';}
-  if(forceBtn)forceBtn.style.display='none';
-  if(noticeBanner)noticeBanner.classList.remove('show');
 
   const requests=(lockObj&&lockObj.requests)||[];
   _updateQueueBadge(requests, lockObj);
   _renderEditRequestPopup(requests);
 
+  const isAdmin=currentUserRole==='admin';
+
   if(!lockObj||!lockObj.lockedBy){
+    // ── No one editing ──
     bar.className='lock-none';
-    if(txt)txt.textContent='✏️ No one is editing — click "Take Edit Access" to start';
-    if(takeBtn){
-      takeBtn.style.display='';
-      takeBtn.className='lock-btn lock-take';
-      takeBtn.textContent='Take Edit Access';
-      takeBtn.setAttribute('onclick','takeLock()');
-    }
-    _myRequestPending=false; // lock freed — clear our request state
-    const reqBtn=document.getElementById('lockRequestBtn');
-    if(reqBtn){reqBtn.style.display='none';}
+    if(txt)txt.textContent='No one is editing';
+    if(takeBtn){takeBtn.style.display='';takeBtn.textContent='Take Edit Access';}
+    _myRequestPending=false;
   }else if(lockObj.lockedBy===currentUser){
+    // ── Self editing ──
     bar.className='lock-self';
     const waitCount=requests.length;
-    if(txt)txt.textContent='🔒 You are editing'+(waitCount>0?' — '+waitCount+' user'+(waitCount>1?'s':'')+' waiting':' — others are in read-only mode');
-    if(takeBtn){takeBtn.style.display='';takeBtn.className='lock-btn lock-release';takeBtn.textContent='Release Edit Lock';takeBtn.setAttribute('onclick','releaseLock()');}
-    // Editor countdown is handled by _startCountdown() called from _startRenewInterval()
+    if(txt)txt.textContent=currentUserDisplay||currentUser;
+    if(editPill)editPill.style.display='flex';
+    if(releaseBtn)releaseBtn.style.display='';
+    // If staff and there are requesters, show Grant Access button
+    if(!isAdmin&&waitCount>0&&grantBtn)grantBtn.style.display='';
+    // Admin gets Manage Queue
+    if(isAdmin&&manageBtn)manageBtn.style.display='';
+    // Show timers
+    if(timers)timers.style.display='flex';
+    // Active time since lock was taken
+    if(timeActive&&lockObj.since){
+      _updateActiveTimer(lockObj.since);
+      if(!_activeTimerInterval){
+        _activeTimerInterval=setInterval(()=>_updateActiveTimer(lockObj.since),1000);
+      }
+    }
+    // Time left: handled by _startCountdown → updates lockTimeLeft
   }else{
+    // ── Someone else editing ──
     const editorName=lockObj.displayName||lockObj.lockedBy;
     const remMs=Math.max(0,new Date(lockObj.expiresAt)-Date.now());
     const remSec=Math.ceil(remMs/1000);
-    const m=Math.floor(remSec/60),s=remSec%60;
-    const remLabel=remSec<60?remSec+'s':m+':'+(s<10?'0':'')+s;
     bar.className='lock-other';
-    if(txt)txt.textContent='🔒 Read-only — '+editorName+' is editing ('+remLabel+' left)';
-    if(takeBtn)takeBtn.style.display='none';
-    if(forceBtn&&currentUserRole==='admin')forceBtn.style.display='';
-    // Show prominent editing notice banner
-    if(noticeBanner){
-      noticeBanner.classList.add('show');
-      if(noticeMain)noticeMain.textContent='🔒 '+editorName+' is currently editing — Read-Only Mode';
-      if(noticeSub)noticeSub.textContent='All write actions are disabled. Lock expires in '+remLabel+'. Wait for '+editorName+' to release, or ask an admin to force-release.';
+    if(txt)txt.textContent=editorName+' is currently editing';
+    if(readPill)readPill.style.display='flex';
+    // Admin-only buttons
+    if(isAdmin){
+      if(forceBtn)forceBtn.style.display='';
+      if(manageBtn&&requests.length>0)manageBtn.style.display='';
     }
-    // Start live viewer countdown so the banner updates every second without polling
+    // Staff: Request or Cancel request
+    if(!isAdmin){
+      if(_myRequestPending){
+        if(cancelReqBtn)cancelReqBtn.style.display='';
+      } else {
+        if(requestBtn)requestBtn.style.display='';
+      }
+    } else {
+      // Admin also sees Request/Cancel (they might want to queue)
+      if(_myRequestPending){
+        if(cancelReqBtn)cancelReqBtn.style.display='';
+      } else {
+        if(requestBtn)requestBtn.style.display='';
+      }
+    }
+    // Show timers
+    if(timers)timers.style.display='flex';
+    if(timeLeft){
+      const m=Math.floor(remSec/60),s=remSec%60;
+      timeLeft.textContent=m+':'+(s<10?'0':'')+s;
+    }
+    if(timeActive&&lockObj.since){
+      _updateActiveTimer(lockObj.since);
+    }
+    // Start live viewer countdown
     _startViewerCountdown(lockObj);
   }
+}
+
+// Helper: update "Active" timer display
+function _updateActiveTimer(since){
+  const el=document.getElementById('lockTimeActive');
+  if(!el||!since)return;
+  const diffSec=Math.floor((Date.now()-new Date(since))/1000);
+  const m=Math.floor(diffSec/60),s=diffSec%60;
+  el.textContent=m+':'+(s<10?'0':'')+s;
+}
+
+// Helper: first-requester grant (for staff editor who clicks "Grant Access")
+function _grantAccessToFirstRequester(){
+  if(!_lockInfo||!_lockInfo.requests||_lockInfo.requests.length===0){
+    releaseLock();
+    return;
+  }
+  const first=_lockInfo.requests[0];
+  // If admin modal available, use it; else just release
+  releaseLock();
+  dismissEditRequestPopup();
 }
 
 // ── Lock release on page unload / backgrounding ──────────────────────────────

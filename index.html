@@ -401,8 +401,8 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
     <div id="fpStep3" style="display:none;text-align:center">
       <div style="font-size:26px;margin-bottom:10px">✅</div>
       <div style="font-size:13px;font-weight:700;color:#085041;margin-bottom:8px">Password Reset</div>
-      <div style="font-size:10px;color:#5F5E5A;margin-bottom:6px">The admin password has been reset to:</div>
-      <div style="background:#E1F5EE;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:700;color:#085041;letter-spacing:.04em;margin-bottom:16px">Admin@1234</div>
+      <div style="font-size:10px;color:#5F5E5A;margin-bottom:6px">The admin password has been reset to the default.</div>
+      <div style="background:#F1EFE8;border-radius:8px;padding:8px 12px;font-size:10px;color:#5F5E5A;margin-bottom:16px">Contact your system administrator if you do not know the default password.</div>
       <div style="font-size:9px;color:#A32D2D;margin-bottom:16px">⚠ You will be required to set a new password immediately after logging in.</div>
       <button class="login-btn" onclick="closeForgotPassword()">Back to Login</button>
     </div>
@@ -859,8 +859,10 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
               <option value="cancelled">Cancelled</option>
             </select>
             <select class="fsel" id="lvLeaveType" onchange="renderLeaveLog()" style="width:130px"><option value="all">All types</option></select>
+            <input type="text" class="fsel" id="lvAdminFilter" placeholder="Admin" oninput="renderLeaveLog()" style="width:90px">
             <button class="btn btn-ghost" id="leaveSelAllBtn" style="font-size:10px;padding:3px 9px" onclick="toggleSelectAllLeave()">Select all</button>
-            <button class="btn write-btn" id="leaveDelSelBtn" style="font-size:10px;padding:3px 9px;background:#FCEBEB;color:#791F1F;border:0.5px solid #F5C0C0;display:none" onclick="deleteSelectedLeave()">Remove selected (<span id="leaveSelCount">0</span>)</button>
+            <button class="btn write-btn" id="leaveBulkEditBtn" style="font-size:10px;padding:3px 9px;background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;display:none" onclick="openBulkLeaveEditPanel()">✎ Bulk edit (<span id="leaveBulkSelCount">0</span>)</button>
+            <button class="btn write-btn" id="leaveDelSelBtn" style="font-size:10px;padding:3px 9px;background:#FCEBEB;color:#791F1F;border:0.5px solid #F5C0C0;display:none" onclick="deleteSelectedLeave()">✕ Remove selected (<span id="leaveSelCount">0</span>)</button>
             <button class="btn write-btn" id="findDupesBtn" style="font-size:10px;padding:3px 9px;background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC" onclick="findAndRemoveDuplicates()">
               <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4"/><path d="M10 10l3 3"/><path d="M4 6h4M6 4v4"/></svg>Find &amp; Remove Duplicates
             </button>
@@ -1423,7 +1425,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 // GOOGLE DRIVE CONFIG — paste your OAuth Client ID here
 // ═══════════════════════════════════════════════════════════════════════════
 const GDRIVE_CLIENT_ID = '546916684093-p3a58p8uiha5uvfg4dtq7rmqqqj77ck2.apps.googleusercontent.com';
-const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive';
+const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
 const GDRIVE_FILE_NAME   = 'lms_data.json';
 const GDRIVE_DEFAULT_FOLDER = 'LMS Data'; // default folder — keeps DB away from Drive root
 const GDRIVE_API       = 'https://www.googleapis.com/drive/v3';
@@ -1474,7 +1476,6 @@ let _gdriveFileEtag   = '';  // Drive ETag for atomic conditional writes (If-Mat
 
 // Default admin password is NOT stored in source. On first run, the system
 // forces a password change before any data access is granted.
-const DEFAULT_ADMIN_HASH_PLAIN='Admin@1234';
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── AUTH — MULTI-USER ───────────────────────────────────────────────────────
@@ -1485,7 +1486,7 @@ async function hashPass(s){
 
 // Default seed admin
 let _forcePwUsername='';
-let _defaultAdminHash=null; // resolved async at startup
+const _defaultAdminHash='bc78e58d55cde1346e68f8e5fe588dedf62fa457aa646a500a53347faff6ee24'; // SHA-256 of default reset password — plaintext never stored
 
 let currentUser=''; // username
 let currentUserDisplay=''; // display name
@@ -1516,7 +1517,6 @@ function saveUsersArray(arr){
 }
 
 async function ensureDefaultAdmin(){
-  if(!_defaultAdminHash) _defaultAdminHash=await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
   let users=getUsersArray();
   if(!users||users.length===0){
     users=[{username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null}];
@@ -1595,7 +1595,6 @@ async function fpConfirmReset(){
   if(!_fpTargetUser){err.textContent='Session expired. Please start again.';err.style.display='block';return;}
   // Perform the reset
   try{
-    if(!_defaultAdminHash) _defaultAdminHash=await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
     const users=getUsersArray()||[];
     const uObj=users.find(x=>x.username===_fpTargetUser.username);
     if(!uObj){err.textContent='User not found.';err.style.display='block';return;}
@@ -2220,7 +2219,6 @@ async function _gdriveRestoreFromTrash(fileId){
 
 async function _gdriveCreateFile(){
   // users:[] gets written to Drive and login always fails on first setup.
-  if(!_defaultAdminHash) _defaultAdminHash = await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
   const adminUser = {username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null};
   _lmsUsersOverride = [adminUser];
   localStorage.setItem('lms7_users', JSON.stringify([adminUser]));
@@ -2256,7 +2254,6 @@ async function _gdriveLoadFile(){
     } else {
       // Fresh file — no users yet. Seed the default admin and save back to Drive.
       _credentialsFromFile = true;
-      if(!_defaultAdminHash) _defaultAdminHash = await hashPass(DEFAULT_ADMIN_HASH_PLAIN);
       const adminUser = {username:'admin',hash:_defaultAdminHash,displayName:'Admin',role:'admin',mustChangePassword:true,lastLogin:null};
       _lmsUsersOverride = [adminUser];
       localStorage.setItem('lms7_users', JSON.stringify([adminUser]));
@@ -5417,12 +5414,14 @@ function renderLeaveLog(){
   const q=(v('leaveSearch')||'').toLowerCase();
   const sf=(document.getElementById('leaveStatusFilter')||{value:'all'}).value;
   const lf=(v('lvLeaveType')||'all');
+  const af=(v('lvAdminFilter')||'').toLowerCase();
   const filtered=[...leaves].filter(l=>{
     const e=ge(l.empId)||{};
     const matchQ=!q||(e.name||'').toLowerCase().includes(q)||l.empId.toLowerCase().includes(q)||(e.unit||'').toLowerCase().includes(q)||(l.reason||'').toLowerCase().includes(q)||(l.contactNo||'').includes(q);
     const matchS=sf==='all'||l.status===sf;
     const matchL=lf==='all'||l.type===lf;
-    return matchQ&&matchS&&matchL;
+    const matchA=!af||(l.admin||'').toLowerCase().includes(af);
+    return matchQ&&matchS&&matchL&&matchA;
   });
   const rows=filtered.sort((a,b)=>{
     const e1=ge(a.empId)||{},e2=ge(b.empId)||{};
@@ -5441,14 +5440,15 @@ function renderLeaveLog(){
     ${th('empId','Emp No.','6%')}${th('name','Name','9%')}${th('unit','Unit','5%')}
     ${th('type','Type','5%')}${th('filed','Filed','6%')}${th('start','Start','6%')}${th('end','End','6%')}
     ${th('duration','Duration','5%')}${th('rtw','RTW','6%')}
-    ${th('reason','Reason','7%')}${th('remarks','Remarks','8%')}${th('status','Status','6%')}${th('admin','Admin','6%')}
+    ${th('reason','Reason','13%')}${th('status','Status','6%')}${th('admin','Admin','6%')}
     ${th('contactNo','Contact','6%')}<th style="width:5%"></th>
   </tr></thead>
   <tbody>${rows.map(l=>{const e=ge(l.empId)||{};
     const hasAmends=l.amendments&&l.amendments.length>0;
     const isCancelled=l.status==='cancelled';
-    const remarksCell=l.remarks
-      ?`<span style="font-size:10px;color:${isCancelled?'#791F1F':'#5F5E5A'};${isCancelled?'font-weight:500':''}" title="${esc(l.remarks)}">${esc(l.remarks)}</span>`
+    const combinedNote=[l.reason,l.remarks].filter(Boolean).join(' — ');
+    const reasonCell=combinedNote
+      ?`<span style="font-size:10px;color:${isCancelled?'#791F1F':'#5F5E5A'};${isCancelled?'font-weight:500':''}" title="${esc(combinedNote)}">${esc(combinedNote)}</span>`
       :`<span style="color:#B4B2A9">—</span>`;
     return`<tr style="${isCancelled?'opacity:0.75;background:#FFFAFA;':''}">
     <td style="text-align:center"><input type="checkbox" class="leave-chk" data-id="${l.id}" ${leaveSelection.has(l.id)?'checked':''} onchange="toggleLeaveChk(${l.id},this.checked)"></td>
@@ -5458,8 +5458,7 @@ function renderLeaveLog(){
     <td>${fmt(l.start)}</td><td>${l.end?fmt(l.end):'<span style="color:#B4B2A9">—</span>'}</td>
     <td style="color:#5F5E5A">${l.duration||calcDurationStr(l.start,l.end)||'<span style="color:#B4B2A9">—</span>'}</td>
     <td style="color:#5F5E5A">${l.end&&l.rtw?fmt(l.rtw):'<span style="color:#B4B2A9">—</span>'}</td>
-    <td style="color:#5F5E5A;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.reason||'')}">${esc(l.reason)||'-'}</td>
-    <td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${remarksCell}</td>
+    <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${reasonCell}</td>
     <td><span class="badge b-${l.status||'approved'}">${l.status||''}</span></td>
     <td>${esc(l.admin||'-')}</td><td style="color:#5F5E5A">${esc(l.contactNo||'-')}</td>
     <td style="white-space:nowrap">
@@ -5488,8 +5487,12 @@ function updateLeaveSelUI(){
   const n=leaveSelection.size;
   const delBtn=document.getElementById('leaveDelSelBtn');
   const cntEl=document.getElementById('leaveSelCount');
+  const bulkBtn=document.getElementById('leaveBulkEditBtn');
+  const bulkCnt=document.getElementById('leaveBulkSelCount');
   if(delBtn)delBtn.style.display=n>0?'':'none';
   if(cntEl)cntEl.textContent=n;
+  if(bulkBtn)bulkBtn.style.display=n>0?'':'none';
+  if(bulkCnt)bulkCnt.textContent=n;
   const allChk=document.getElementById('leaveChkAll');
   const visible=document.querySelectorAll('.leave-chk');
   if(allChk&&visible.length>0)allChk.checked=[...visible].every(c=>c.checked);
@@ -5500,6 +5503,58 @@ function deleteSelectedLeave(){
   leaves=leaves.filter(l=>!leaveSelection.has(l.id));
   leaveSelection.clear();
   save();buildDropdowns();renderLeaveLog();renderPendingRequests();renderHome();
+}
+function openBulkLeaveEditPanel(){
+  if(!leaveSelection.size){alert('Select at least one record first.');return;}
+  // Populate leave type select
+  buildLeaveTypeSelect('blkType','');
+  document.getElementById('blkStatus').value='';
+  document.getElementById('blkAdmin').value='';
+  document.getElementById('blkAmendReason').value='';
+  document.getElementById('blkMsg').textContent='';
+  document.getElementById('bulkLeaveEditModal').style.display='flex';
+}
+function closeBulkLeaveEditModal(){
+  document.getElementById('bulkLeaveEditModal').style.display='none';
+}
+function applyBulkLeaveEdit(){
+  const newStatus=document.getElementById('blkStatus').value;
+  const newType=document.getElementById('blkType').value;
+  const newAdmin=document.getElementById('blkAdmin').value.trim();
+  const amendReason=document.getElementById('blkAmendReason').value.trim();
+  if(!amendReason){
+    document.getElementById('blkMsg').style.color='#A32D2D';
+    document.getElementById('blkMsg').textContent='Amendment reason is required.';
+    return;
+  }
+  const ids=[...leaveSelection];
+  let changeCount=0;
+  ids.forEach(id=>{
+    const l=leaves.find(x=>x.id===id);if(!l)return;
+    const changes=[];
+    const prev={type:l.type,status:l.status,admin:l.admin,reason:l.reason};
+    if(newStatus&&newStatus!==l.status){changes.push(`Status: ${l.status} → ${newStatus}`);l.status=newStatus;}
+    if(newType&&newType!==l.type){changes.push(`Type: ${l.type} → ${newType}`);l.type=newType;}
+    if(newAdmin&&newAdmin!==l.admin){changes.push(`Admin: ${l.admin||'—'} → ${newAdmin}`);l.admin=newAdmin;}
+    if(!changes.length)return;
+    changeCount++;
+    if(!l.amendments)l.amendments=[];
+    l.amendments.push({date:iso(getToday()),by:currentUser||'Admin',note:amendReason,changes:changes.join(' | '),prev});
+    const e=ge(l.empId)||{};
+    const statusActionMap={approved:'Leave Approved',cancelled:'Leave Cancelled',pending:'Leave Pending'};
+    const actAction=newStatus?(statusActionMap[newStatus]||'Leave Updated'):'Leave Updated';
+    actlog.push({id:aNid++,empId:l.empId,name:e.name||l.empId,reqType:'Leave',action:actAction,
+      dateReq:iso(getToday()),admin:currentUser||'Admin',actionDate:isoNow(),
+      note:'Bulk amendment: '+amendReason+' | '+changes.join(', ')});
+  });
+  if(!changeCount){
+    document.getElementById('blkMsg').style.color='#A32D2D';
+    document.getElementById('blkMsg').textContent='No changes detected on selected records.';
+    return;
+  }
+  save();buildDropdowns();renderLeaveLog();renderPendingRequests();renderHome();
+  leaveSelection.clear();updateLeaveSelUI();
+  closeBulkLeaveEditModal();
 }
 function renderPendingRequests(){
   const q=(v('pendingSearch')||'').toLowerCase();
@@ -5536,10 +5591,13 @@ function renderPendingRequests(){
       <th style="width:6%">Emp No.</th><th style="width:10%">Name</th><th style="width:6%">Unit</th>
       <th style="width:5%">Type</th><th style="width:7%">Filed</th><th style="width:7%">Start</th>
       <th style="width:7%">End</th><th style="width:4%">Days</th><th style="width:7%">RTW</th>
-      <th style="width:8%">Reason</th><th style="width:7%">Contact</th>
-      <th style="width:9%">Status</th><th style="width:13%">Remarks <span style="font-weight:400;color:#9AA5BB;font-size:8px">(admin note)</span></th><th style="width:5%"></th>
+      <th style="width:7%">Contact</th>
+      <th style="width:9%">Status</th><th style="width:17%">Reason <span style="font-weight:400;color:#9AA5BB;font-size:8px">(editable)</span></th><th style="width:5%"></th>
     </tr></thead>
-    <tbody>${pending.map(l=>{const e=ge(l.empId)||{};const dur=l.duration||calcDurationStr(l.start,l.end);return`<tr>
+    <tbody>${pending.map(l=>{const e=ge(l.empId)||{};const dur=l.duration||calcDurationStr(l.start,l.end);
+      const remarksPrefill=(l.remarks||l.reason||'').replace(/"/g,'&quot;');
+      const remarksPlaceholder=l.reason?esc(l.reason):'e.g. Approved per HR policy…';
+      return`<tr>
       <td style="text-align:center"><input type="checkbox" class="pending-chk" data-id="${l.id}" onchange="updatePendingSelCount()"></td>
       <td>${esc(l.empId)}</td>
       <td>${esc(e.name||l.empId)}</td>
@@ -5550,7 +5608,6 @@ function renderPendingRequests(){
       <td>${l.end?fmt(l.end):'<span style="color:#B4B2A9">—</span>'}</td>
       <td style="text-align:center;font-weight:500">${dur||'—'}</td>
       <td style="color:#5F5E5A">${l.end&&l.rtw?fmt(l.rtw):'<span style="color:#B4B2A9">—</span>'}</td>
-      <td style="color:#5F5E5A;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.reason||'')}">${esc(l.reason)||'-'}</td>
       <td style="color:#5F5E5A">${esc(l.contactNo||'-')}</td>
       <td>
         <select style="font-size:10px;border:0.5px solid #B4B2A9;border-radius:5px;padding:2px 5px;background:#fff;cursor:pointer;color:${l.status==='approved'?'#085041':l.status==='cancelled'?'#791F1F':'#633806'};font-weight:500"
@@ -5561,7 +5618,7 @@ function renderPendingRequests(){
         </select>
       </td>
       <td>
-        <input type="text" value="${(l.remarks||'').replace(/"/g,'&quot;')}" placeholder="e.g. Approved per HR policy…"
+        <input type="text" value="${remarksPrefill}" placeholder="${remarksPlaceholder}"
           style="font-size:10px;border:0.5px solid #D3D1C7;border-radius:5px;padding:2px 6px;width:100%;background:#FFFDF8"
           onchange="updateLeaveRemarks(${l.id},this.value)"
           onblur="updateLeaveRemarks(${l.id},this.value)">
@@ -5745,7 +5802,6 @@ function openAmendModal(id){
   document.getElementById('amRtw').value=l.rtw||'';
   document.getElementById('amContact').value=l.contactNo||'';
   document.getElementById('amReason').value=l.reason||'';
-  document.getElementById('amNote').value='';
   // Status + remarks fields
   const amSt=document.getElementById('amStatus');
   if(amSt)amSt.value=l.status||'pending';
@@ -5795,13 +5851,6 @@ function saveAmendment(){
   const l=leaves.find(x=>x.id===_amendLeaveId);
   if(!l){document.getElementById('amendMsg').textContent='Leave not found.';return;}
 
-  const note=(document.getElementById('amNote').value||'').trim();
-  if(!note){
-    document.getElementById('amendMsg').style.color='#A32D2D';
-    document.getElementById('amendMsg').textContent='Amendment note is required — explain why the record is being changed.';
-    return;
-  }
-
   const newType=document.getElementById('amType').value;
   const newStart=document.getElementById('amStart').value;
   const newEnd=document.getElementById('amEnd').value;
@@ -5810,6 +5859,12 @@ function saveAmendment(){
   const newReason=document.getElementById('amReason').value.trim();
   const newStatus=document.getElementById('amStatus').value||l.status;
   const newRemarks=document.getElementById('amRemarks').value.trim();
+
+  if(!newReason){
+    document.getElementById('amendMsg').style.color='#A32D2D';
+    document.getElementById('amendMsg').textContent='Reason is required — enter the employee\'s reason or describe the change.';
+    return;
+  }
 
   // Basic validation
   if(!newStart){document.getElementById('amendMsg').style.color='#A32D2D';document.getElementById('amendMsg').textContent='Start date is required.';return;}
@@ -5823,7 +5878,7 @@ function saveAmendment(){
   const oldEnd=l.end&&l.end!==MAX_DATE?l.end:'';
   if(newEnd!==oldEnd)changes.push(`End: ${oldEnd?fmt(oldEnd):'open-ended'} → ${newEnd?fmt(newEnd):'open-ended'}`);
   if(newRtw!==(l.rtw||''))changes.push(`RTW: ${l.rtw?fmt(l.rtw):'—'} → ${newRtw?fmt(newRtw):'—'}`);
-  if(newReason!==l.reason)changes.push(`Reason changed`);
+  if(newReason!==l.reason)changes.push(`Reason updated`);
   if(newContact!==(l.contactNo||''))changes.push(`Contact updated`);
   if(newStatus!==l.status)changes.push(`Status: ${l.status} → ${newStatus}`);
   if(newRemarks!==(l.remarks||''))changes.push(`Remarks updated`);
@@ -5857,7 +5912,7 @@ function saveAmendment(){
   l.amendments.push({
     date:iso(getToday()),
     by:currentUser||'Admin',
-    note,
+    note:newReason,
     changes:changes.join(' | '),
     prev:prevSnapshot
   });
@@ -5868,7 +5923,7 @@ function saveAmendment(){
     id:aNid++,empId:l.empId,name:e.name||l.empId,
     reqType:'Leave',action:actAction,
     dateReq:iso(getToday()),admin:currentUser||'Admin',actionDate:isoNow(),
-    note:'Amendment: '+note+' | '+changes.join(', ')+(newRemarks?' | Admin remarks: '+newRemarks:'')
+    note:'Amendment: '+newReason+' | '+changes.join(', ')+(newRemarks?' | Admin remarks: '+newRemarks:'')
   });
 
   save();
@@ -7946,6 +8001,54 @@ function initApp(){
 </script>
 
 <!-- AMEND LEAVE MODAL -->
+<!-- BULK LEAVE EDIT MODAL -->
+<div id="bulkLeaveEditModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;width:520px;max-width:96vw;max-height:88vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+    <div style="padding:14px 18px;background:linear-gradient(90deg,#0C447C,#185FA5);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div>
+        <span style="font-size:13px;font-weight:700;color:#fff">✎ Bulk Edit Leave Records</span>
+        <div style="font-size:10px;color:rgba(255,255,255,.7);margin-top:2px">Changes apply to all selected records</div>
+      </div>
+      <button onclick="closeBulkLeaveEditModal()" style="background:none;border:none;color:rgba(255,255,255,.7);font-size:18px;cursor:pointer;line-height:1">&times;</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:16px 18px">
+      <div style="background:#E6F1FB;border:0.5px solid #85B7EB;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:10px;color:#0C447C">
+        Leave fields blank to keep existing values. Only filled fields will be applied to selected records.
+      </div>
+      <div class="form-grid" style="margin-bottom:12px">
+        <div class="ff">
+          <label>Set status <span style="font-size:9px;color:#9AA5BB;font-weight:400">(leave blank to keep)</span></label>
+          <select id="blkStatus" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;color:#2C2C2A;width:100%">
+            <option value="">— keep existing —</option>
+            <option value="approved">Approved</option>
+            <option value="pending">Pending</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="ff">
+          <label>Set leave type <span style="font-size:9px;color:#9AA5BB;font-weight:400">(leave blank to keep)</span></label>
+          <select id="blkType" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;color:#2C2C2A;width:100%">
+            <option value="">— keep existing —</option>
+          </select>
+        </div>
+        <div class="ff" style="grid-column:span 2">
+          <label>Set administered by <span style="font-size:9px;color:#9AA5BB;font-weight:400">(leave blank to keep)</span></label>
+          <input type="text" id="blkAdmin" placeholder="e.g. Supervisor / HR" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;color:#2C2C2A;width:100%">
+        </div>
+        <div class="ff" style="grid-column:span 2">
+          <label>Amendment reason <span style="font-size:9px;color:#A32D2D;font-weight:500">*required</span> — explain why the records are being changed</label>
+          <input type="text" id="blkAmendReason" placeholder="e.g. Bulk status correction per HR memo dated …">
+        </div>
+      </div>
+    </div>
+    <div style="padding:12px 18px;border-top:0.5px solid #F0EEF8;display:flex;gap:8px;align-items:center;background:#F8FAFF;flex-shrink:0">
+      <button class="btn btn-primary write-btn" style="background:#0C447C;border-color:#0C447C" onclick="applyBulkLeaveEdit()">Apply to selected</button>
+      <button class="btn btn-ghost" onclick="closeBulkLeaveEditModal()">Cancel</button>
+      <div id="blkMsg" style="font-size:10px;align-self:center;margin-left:4px"></div>
+    </div>
+  </div>
+</div>
+
 <div id="amendModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:14px;width:600px;max-width:96vw;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.18)">
     <div style="padding:14px 18px;background:linear-gradient(90deg,#534AB7,#7F77DD);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
@@ -7985,12 +8088,8 @@ function initApp(){
           <input type="text" id="amContact" placeholder="09XX-XXX-XXXX">
         </div>
         <div class="ff" style="grid-column:span 2">
-          <label>Reason <span style="font-size:9px;color:#9AA5BB;font-weight:400">(employee's reason)</span></label>
-          <input type="text" id="amReason" placeholder="e.g. Extended recovery…">
-        </div>
-        <div class="ff" style="grid-column:span 2">
-          <label>Amendment note <span style="font-size:9px;color:#A32D2D;font-weight:500">*required</span> — explain why the record is being changed</label>
-          <input type="text" id="amNote" placeholder="e.g. Dates corrected per medical certificate received, approved SL extended by doctor's advice…">
+          <label>Reason <span style="font-size:9px;color:#9AA5BB;font-weight:400">(employee's reason and/or summary of changes made)</span> <span style="font-size:9px;color:#A32D2D;font-weight:500">*required</span></label>
+          <input type="text" id="amReason" placeholder="e.g. Extended sick leave per doctor's advice, dates corrected per med cert…">
         </div>
         <!-- Status quick-action -->
         <div class="ff">

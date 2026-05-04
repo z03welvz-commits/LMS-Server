@@ -848,8 +848,16 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
       </div>
 
       <div class="card">
-        <div class="card-head">
-          <h2>Leave records</h2>
+        <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h2>Leave records</h2>
+            <div style="display:flex;gap:6px;align-items:center">
+              <button class="btn write-btn" id="findDupesBtn" style="font-size:10px;padding:3px 9px;background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC" onclick="findAndRemoveDuplicates()">
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4"/><path d="M10 10l3 3"/><path d="M4 6h4M6 4v4"/></svg>Find &amp; Remove Duplicates
+              </button>
+              <span id="dupesMsg" style="font-size:9px;color:#3C3489"></span>
+            </div>
+          </div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <input type="text" class="fsel" id="leaveSearch" placeholder="ID or name…" oninput="renderLeaveLog()" style="width:110px">
             <select class="fsel" id="leaveStatusFilter" onchange="renderLeaveLog()" style="width:100px">
@@ -858,15 +866,12 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
               <option value="pending">Pending</option>
               <option value="cancelled">Cancelled</option>
             </select>
-            <select class="fsel" id="lvLeaveType" onchange="renderLeaveLog()" style="width:130px"><option value="all">All types</option></select>
-            <input type="text" class="fsel" id="lvAdminFilter" placeholder="Admin" oninput="renderLeaveLog()" style="width:90px">
+            <select class="fsel" id="lvLeaveType" onchange="renderLeaveLog()" style="width:120px"><option value="all">All types</option></select>
+            <input type="text" class="fsel" id="lvAdminFilter" placeholder="Admin" oninput="renderLeaveLog()" style="width:85px">
+            <div style="width:0.5px;height:16px;background:#D3D1C7;flex-shrink:0"></div>
             <button class="btn btn-ghost" id="leaveSelAllBtn" style="font-size:10px;padding:3px 9px" onclick="toggleSelectAllLeave()">Select all</button>
             <button class="btn write-btn" id="leaveBulkEditBtn" style="font-size:10px;padding:3px 9px;background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;display:none" onclick="openBulkLeaveEditPanel()">✎ Bulk edit (<span id="leaveBulkSelCount">0</span>)</button>
             <button class="btn write-btn" id="leaveDelSelBtn" style="font-size:10px;padding:3px 9px;background:#FCEBEB;color:#791F1F;border:0.5px solid #F5C0C0;display:none" onclick="deleteSelectedLeave()">✕ Remove selected (<span id="leaveSelCount">0</span>)</button>
-            <button class="btn write-btn" id="findDupesBtn" style="font-size:10px;padding:3px 9px;background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC" onclick="findAndRemoveDuplicates()">
-              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4"/><path d="M10 10l3 3"/><path d="M4 6h4M6 4v4"/></svg>Find &amp; Remove Duplicates
-            </button>
-            <span id="dupesMsg" style="font-size:9px;color:#3C3489"></span>
           </div>
         </div>
         <div id="logTable" class="tbl-wrap" style="max-height:420px"></div>

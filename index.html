@@ -2804,7 +2804,7 @@ async function _renewLockNow(){
   }
   _lockInfo=lockObj;
   _updateLockBar(lockObj);
-  _startCountdown(); // reset countdown to reflect the fresh expiresAt after renewal
+  _startCountdown(); // reset countdown to reflect fresh expiresAt after renewal
 }
 
 // ── Network-lost banner (shown when the editor loses Drive connectivity) ──────
@@ -3371,7 +3371,6 @@ function calcLeaveDuration(){
   if(el)el.value=calcDurationStr(start,end);
   autoCalcRtw();
 }
-// ── Auto-calculate RTW: next working day after leave end, based on emp schedule ──
 function autoCalcRtw(){
   const empId=(v('fEmpId')||'').trim();
   const end=v('fEnd');
@@ -3380,7 +3379,6 @@ function autoCalcRtw(){
   if(!empId||!end){rtwEl.value='';return;}
   const emp=ge(empId);
   if(!emp){rtwEl.value='';return;}
-  // Walk forward from day after leave end to find first non-rest day
   let d=pd(end);
   d.setDate(d.getDate()+1);
   for(let i=0;i<60;i++){
@@ -3389,9 +3387,8 @@ function autoCalcRtw(){
     if(!s.isRest){rtwEl.value=ds;return;}
     d.setDate(d.getDate()+1);
   }
-  rtwEl.value=''; // fallback: couldn't find within 60 days
+  rtwEl.value='';
 }
-// Same but for the Amend modal (uses stored empId from _amendLeaveId)
 function autoCalcAmendRtw(){
   const l=leaves.find(x=>x.id===_amendLeaveId);
   const rtwEl=document.getElementById('amRtw');
@@ -6459,7 +6456,7 @@ function renderActivity(){
     else if(actSortCol==='action'){va=a.action||'';vb=b.action||'';}
     else if(actSortCol==='admin'){va=a.admin||'';vb=b.admin||'';}
     else if(actSortCol==='actionDate'){va=a.actionDate||'';vb=b.actionDate||'';}
-    else if(actSortCol==='user'){va=a.displayName||a.admin||'';vb=b.displayName||b.admin||'';}
+    else if(actSortCol==='user'){va=a.username||a.admin||'';vb=b.username||b.admin||'';}
     else{va='';vb='';}
     return actSortDir==='asc'?va.localeCompare(vb):vb.localeCompare(va);
   });
@@ -6470,7 +6467,8 @@ function renderActivity(){
   </tr></thead>
     <tbody>${rows.map(a=>{const bg=ACT_COLOR[a.action]||'#F1EFE8';const tc=ACT_TEXT[a.action]||'#2C2C2A';
     const userCol=esc(a.username||a.admin||'—');
-    return`<tr><td>${esc(a.empId||'—')}</td><td>${esc(a.name||'—')}</td><td style="font-size:10px;color:#185FA5;font-weight:500">${userCol}</td><td>${esc(a.reqType||'—')}</td><td><span class="badge" style="background:${bg};color:${tc}">${esc(a.action||'—')}</span></td><td>${esc(a.displayName||a.admin||'—')}</td><td style="white-space:nowrap">${fmtDatetime(a.actionDate)}</td><td style="color:#5F5E5A;font-size:10px;white-space:normal">${esc(a.note||'—')}</td></tr>`;}).join('')}</tbody></table>`:`<div class="no-data">No activity records.</div>`;
+    const doneByCol=esc(a.displayName||a.admin||'—');
+    return`<tr><td>${esc(a.empId||'—')}</td><td>${esc(a.name||'—')}</td><td style="font-size:10px;color:#185FA5;font-weight:500">${userCol}</td><td>${esc(a.reqType||'—')}</td><td><span class="badge" style="background:${bg};color:${tc}">${esc(a.action||'—')}</span></td><td>${doneByCol}</td><td style="white-space:nowrap">${fmtDatetime(a.actionDate)}</td><td style="color:#5F5E5A;font-size:10px;white-space:normal">${esc(a.note||'—')}</td></tr>`;}).join('')}</tbody></table>`:`<div class="no-data">No activity records.</div>`;
 }
 
 // ─── STORAGE UI HELPERS ───────────────────────────────────────────────────────
@@ -8125,7 +8123,7 @@ function initApp(){
           <input type="text" id="amDuration" readonly style="background:#F1EFE8">
         </div>
         <div class="ff">
-          <label>RTW (Return to Work) <span style="font-size:9px;color:#9AA5BB;font-weight:400">(auto-calculated, editable)</span></label>
+          <label>RTW (Return to Work) <span style="font-size:9px;color:#9AA5BB;font-weight:400">(optional)</span></label>
           <input type="date" id="amRtw">
         </div>
         <div class="ff">

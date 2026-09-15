@@ -10,6 +10,25 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;color:#2C2C2A;min-height:100vh}
 
+/* ═══ GLOBAL LOADING — floating spinner + "Please wait" indicator ═══ */
+#globalLoader{position:fixed;bottom:22px;right:22px;background:#1B3A6B;color:#fff;padding:10px 16px 10px 13px;border-radius:24px;display:flex;align-items:center;gap:9px;font-size:11px;font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:9999;opacity:0;transform:translateY(8px);transition:opacity .2s ease,transform .2s ease;pointer-events:none}
+#globalLoader.show{opacity:1;transform:translateY(0)}
+#globalLoader .gl-spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:btnSpin .6s linear infinite;flex-shrink:0}
+
+/* ═══ GLOBAL LOADING — button busy state ═══ */
+.btn-spinner{display:inline-block;width:11px;height:11px;border:1.5px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:btnSpin .6s linear infinite;vertical-align:-1.5px;margin-right:6px}
+.btn-ghost .btn-spinner,.btn.btn-ghost .btn-spinner{border:1.5px solid rgba(27,58,107,.25);border-top-color:#1B3A6B}
+@keyframes btnSpin{to{transform:rotate(360deg)}}
+button.btn-busy,button[disabled].btn-busy{opacity:.75;cursor:wait}
+
+/* ═══ GLOBAL LOADING — page-content fade while a page swaps in ═══ */
+.page-content.pc-loading{opacity:.45;transition:opacity .12s ease}
+
+/* ═══ GLOBAL LOADING — inline panel skeleton shimmer ═══ */
+.skel{position:relative;overflow:hidden;background:#F1EFE8;border-radius:6px}
+.skel::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.6),transparent);transform:translateX(-100%);animation:skelShine 1.1s ease-in-out infinite}
+@keyframes skelShine{to{transform:translateX(100%)}}
+
 /* ═══ LOGIN ═══ */
 #loginPage{display:flex;min-height:100vh;align-items:center;justify-content:center;background:linear-gradient(135deg,#1B3A6B 0%,#0F2A50 100%)}
 .login-box{background:#fff;border-radius:16px;padding:36px 40px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.18)}
@@ -431,6 +450,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 </style>
 </head>
 <body>
+<div id="globalLoader"><span class="gl-spin"></span><span id="globalLoaderText">Please wait…</span></div>
 
 <!-- ═══ GENERATING OVERLAY ═══ -->
 <div id="genOverlay"><div class="spinner"></div><p id="genMsg">Generating report…</p></div>
@@ -461,7 +481,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
     </div>
     <div class="login-field"><label>Username</label><input type="text" id="loginUser" placeholder="username" autocomplete="username"></div>
     <div class="login-field"><label>Password</label><input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
-    <button class="login-btn" id="loginSubmitBtn" onclick="doLogin()" disabled style="opacity:0.45;cursor:not-allowed">Sign in</button>
+    <button class="login-btn" id="loginSubmitBtn" onclick="doLogin(this)" disabled style="opacity:0.45;cursor:not-allowed">Sign in</button>
     <div class="login-err" id="loginErr">Incorrect username or password.</div>
     <div style="margin-top:10px;text-align:center">
       <button onclick="openForgotPassword()" style="background:none;border:none;font-size:9px;color:#888780;cursor:pointer;text-decoration:underline;padding:2px 4px">Forgot password?</button>
@@ -533,7 +553,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
     <div class="cpw-sub">Your account has a temporary password. Please set a new password to continue.</div>
     <div class="login-field"><label>New password</label><input type="password" id="cpwNew" placeholder="New password" autocomplete="new-password"></div>
     <div class="login-field"><label>Confirm new password</label><input type="password" id="cpwConfirm" placeholder="Confirm password" autocomplete="new-password" onkeydown="if(event.key==='Enter')doForcePwChange()"></div>
-    <button class="login-btn" onclick="doForcePwChange()" style="margin-top:8px">Set new password</button>
+    <button class="login-btn" onclick="doForcePwChange(this)" style="margin-top:8px">Set new password</button>
     <div class="login-err" id="cpwErr" style="margin-top:8px"></div>
   </div>
 </div>
@@ -958,7 +978,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             <div class="ff"><label>Status</label><select id="fStatus"><option value="approved">Approved</option><option value="pending">Pending</option><option value="cancelled">Cancelled</option></select></div>
             <div class="ff"><label>Contact number</label><input type="text" id="fContact" placeholder="09XX-XXX-XXXX"></div>
           </div>
-          <div class="form-actions"><button class="btn btn-primary write-btn" onclick="addLeave()">Save leave record</button><div id="addMsg"></div></div>
+          <div class="form-actions"><button class="btn btn-primary write-btn" onclick="addLeave(this)">Save leave record</button><div id="addMsg"></div></div>
         </div>
       </div>
       </div><!-- end ltab-single -->
@@ -1116,7 +1136,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
               <div class="ff"><label>Base rest day</label><select id="eRest"><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select></div>
               <div class="ff"><label>Contact no. (CP)</label><input type="text" id="eCp" placeholder="e.g. 09171234567"></div>
             </div>
-            <div class="form-actions"><button class="btn btn-primary write-btn" onclick="addEmp()">Add employee</button><div id="empMsg"></div></div>
+            <div class="form-actions"><button class="btn btn-primary write-btn" onclick="addEmp(this)">Add employee</button><div id="empMsg"></div></div>
           </div>
         </div>
       </div>
@@ -1334,7 +1354,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             <div class="ff"><label>New username</label><input type="text" id="sNewUser" placeholder="New username" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')"></div>
             <div class="ff"><label>New password</label><input type="password" id="sNewPass" placeholder="New password" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')"></div>
           </div>
-          <div class="form-actions"><button class="btn btn-primary" onclick="changeCredentials()">Update credentials</button><div id="settingsMsg"></div></div>
+          <div class="form-actions"><button class="btn btn-primary" onclick="changeCredentials(this)">Update credentials</button><div id="settingsMsg"></div></div>
         </div>
       </div>
       </div><!-- end stab-profile -->
@@ -1345,7 +1365,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
         <div class="form-head">Leave limits per unit <span style="font-size:10px;font-weight:400;color:#888780">— max employees allowed on leave per day per shift</span></div>
         <div class="form-body">
           <div id="leaveLimitGrid" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
-          <div class="form-actions"><button class="btn btn-primary write-btn" onclick="saveLeaveLimits()">Save limits</button><div id="limitsMsg"></div></div>
+          <div class="form-actions"><button class="btn btn-primary write-btn" onclick="saveLeaveLimits(this)">Save limits</button><div id="limitsMsg"></div></div>
         </div>
       </div>
       </div><!-- end stab-limits -->
@@ -1482,7 +1502,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
               <div class="ff"><label>Role</label><select id="umRole"><option value="staff">Staff</option><option value="admin">Admin</option></select></div>
               <div class="ff"><label>Temporary password</label><input type="password" id="umTempPass" placeholder="Temporary password" autocomplete="new-password"></div>
             </div>
-            <div class="form-actions"><button class="btn btn-primary" onclick="addUserAccount()">Add user</button><div id="umAddMsg"></div></div>
+            <div class="form-actions"><button class="btn btn-primary" onclick="addUserAccount(this)">Add user</button><div id="umAddMsg"></div></div>
           </div>
         </div>
         <div class="card">
@@ -1497,7 +1517,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
               <div class="ff"><label>New temporary password</label><input type="password" id="umResetPass" placeholder="New temporary password" autocomplete="new-password"></div>
             </div>
             <div class="form-actions">
-              <button class="btn btn-primary" onclick="confirmResetPass()">Set temporary password</button>
+              <button class="btn btn-primary" onclick="confirmResetPass(this)">Set temporary password</button>
               <button class="btn btn-ghost" onclick="cancelResetPass()">Cancel</button>
               <div id="umResetMsg"></div>
             </div>
@@ -1529,38 +1549,24 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 
       <!-- ═══ 2. REQUIRED vs ACTUAL TABLE ═══ -->
       <div class="card" style="margin-bottom:.75rem">
-        <div class="card-head">
+        <div class="card-head" style="flex-wrap:wrap;gap:8px">
           <div style="display:flex;align-items:center;gap:8px">
             <h2>Required vs Actual Manpower by Unit Type</h2>
+            <span style="font-size:9px;font-weight:400;color:#9AA5BB">Units column is editable · Regular ×2.33 · Reliever ×0.16 (even)</span>
           </div>
-          <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:10px;color:#5F5E5A">Date</span>
             <input type="date" id="mpRatioDate" class="finput" style="width:130px" onchange="renderManpowerRatio()">
             <button class="btn btn-ghost" onclick="resetMpRatioDate()" style="font-size:10px;padding:3px 9px">Today</button>
+            <button class="btn btn-primary" onclick="renderManpowerRatio()" style="font-size:11px">Calculate</button>
+            <button class="btn btn-ghost" onclick="saveMpRatioUnits(this)" style="font-size:11px">Save unit counts</button>
             <button class="btn btn-pdf" onclick="exportMpRatioPDF()">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="10" height="12" rx="1"/><path d="M6 6h4M6 9h4M6 12h2"/></svg>Export PDF
             </button>
-          </div>
-        </div>
-        <div id="mpRatioTable" class="tbl-wrap" style="max-height:420px"></div>
-      </div>
-
-      <!-- ═══ 3. UNIT MANPOWER RATIO INPUTS ═══ -->
-      <div class="card" style="margin-bottom:.75rem">
-        <div class="card-head">
-          <h2>Unit Manpower Ratio <span style="font-size:9px;font-weight:400;color:#9AA5BB;margin-left:4px">Regular × 2.33 · Reliever × 0.16 (even)</span></h2>
-          <div style="display:flex;gap:8px;align-items:center">
-            <button class="btn btn-primary" onclick="renderManpowerRatio()" style="font-size:11px">Calculate</button>
-            <button class="btn btn-ghost" onclick="saveMpRatioUnits()" style="font-size:11px">Save unit counts</button>
             <div id="mpRatioMsg" style="font-size:10px;align-self:center"></div>
           </div>
         </div>
-        <div class="card-body" style="padding:10px 14px">
-          <div style="font-size:10px;color:#5F5E5A;margin-bottom:10px">
-            Enter the <strong>total available units</strong> per unit type. Required = <strong>Regular</strong> (units × 2.33, even) + <strong>Reliever</strong> (units × 0.16, even). Actual headcount is broken out by employee role (Regular / Reliever / Trainee) from the employee database.
-          </div>
-          <div id="mpRatioInputGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px"></div>
-        </div>
+        <div id="mpRatioTable" class="tbl-wrap" style="max-height:420px"></div>
       </div>
 
       <!-- ═══ 4. PER-UNIT BREAKDOWN CHARTS ═══ -->
@@ -1889,7 +1895,10 @@ function _updateLoginPageState(){ _gdriveUpdateLoginUI(); }
 // ── Legacy single-admin fallback ─────────────────────────────────────────────
 function getCredentials(){return JSON.parse(localStorage.getItem('lms7_creds')||'null')||{user:'admin',hash:null};}
 
-async function doLogin(){
+async function doLogin(btn){
+  return _btnBusy(btn,_doLoginInner,'Signing in…');
+}
+async function _doLoginInner(){
   // SECURITY: Google Drive must be connected before login is allowed.
   // Accept either _gdriveReady (auto-restore) or _credentialsFromFile (just signed in)
   if(!_gdriveReady && !_credentialsFromFile){
@@ -1969,7 +1978,10 @@ async function doLogin(){
   setTimeout(()=>{err.style.display='none';},3000);
 }
 
-async function doForcePwChange(){
+async function doForcePwChange(btn){
+  return _btnBusy(btn,_doForcePwChangeInner,'Setting…');
+}
+async function _doForcePwChangeInner(){
   const np=document.getElementById('cpwNew').value;
   const nc=document.getElementById('cpwConfirm').value;
   const err=document.getElementById('cpwErr');
@@ -2037,7 +2049,10 @@ async function doLogout(){
   document.getElementById('loginPass').value='';
 }
 
-async function changeCredentials(){
+async function changeCredentials(btn){
+  return _btnBusy(btn,_changeCredentialsInner,'Updating…');
+}
+async function _changeCredentialsInner(){
   const cur=document.getElementById('sCurPass').value;
   const nu=(document.getElementById('sNewUser').value||'').trim();
   const np=document.getElementById('sNewPass').value;
@@ -2096,7 +2111,10 @@ async function changeCredentials(){
 }
 
 // ── User management (admin only) ─────────────────────────────────────────────
-async function addUserAccount(){
+async function addUserAccount(btn){
+  return _btnBusy(btn,_addUserAccountInner,'Adding…');
+}
+async function _addUserAccountInner(){
   const dn=(document.getElementById('umDispName').value||'').trim();
   const un=(document.getElementById('umUsername').value||'').trim().toLowerCase();
   const role=document.getElementById('umRole').value;
@@ -2152,7 +2170,10 @@ function cancelResetPass(){
   const el=document.getElementById('umResetPanel');
   if(el)el.style.display='none';
 }
-async function confirmResetPass(){
+async function confirmResetPass(btn){
+  return _btnBusy(btn,_confirmResetPassInner,'Resetting…');
+}
+async function _confirmResetPassInner(){
   const np=document.getElementById('umResetPass').value;
   if(!np){showMsg('umResetMsg','Enter a temporary password.',false);return;}
   const users=getUsersArray()||[];
@@ -2553,6 +2574,9 @@ async function _gdriveSaveFile(){
   // Preserve the current lock state so a data save never wipes the lock
   if(_lockInfo) payload._lock = _lockInfo;
   const body = JSON.stringify(payload, null, 2);
+  const statusEl=document.getElementById('gdriveSyncStatus');
+  if(statusEl) statusEl.textContent='Saving…';
+  _barStart('Saving…');
   try{
     await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`, {
       method:'PATCH',
@@ -2563,13 +2587,15 @@ async function _gdriveSaveFile(){
     // download and confirms our write landed before resuming skip-if-unchanged behaviour.
     _lastDriveModifiedTime='';
     updateStorageIndicator('file');
-    const el=document.getElementById('gdriveSyncStatus');
-    if(el){ el.textContent='Last saved '+new Date().toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'}); }
+    if(statusEl){ statusEl.textContent='Last saved '+new Date().toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'}); }
     // Also write dated backup in Drive (async, non-blocking)
     _gdriveWriteBackup(body);
   }catch(e){
     console.warn('Drive save error:',e);
     _gdriveSetMsg('Save error: '+e.message+'. Data saved locally.','err');
+    if(statusEl){ statusEl.textContent='Save failed — retrying on next change'; }
+  }finally{
+    _barDone();
   }
 }
 
@@ -3804,7 +3830,10 @@ function renderLeaveLimitGrid(){
     </div>`;
   }).join('');
 }
-function saveLeaveLimits(){
+async function saveLeaveLimits(btn){
+  return _btnBusy(btn,_saveLeaveLimitsInner,'Saving…');
+}
+function _saveLeaveLimitsInner(){
   const units=[...new Set(employees.map(e=>e.unit))].sort();
   const limits={};
   units.forEach(u=>{
@@ -3895,6 +3924,51 @@ let charts={};
 let _overrideGen=0;
 function _bumpOverrideGen(){_overrideGen++;_clearSchedCache();}
 
+// ─── GLOBAL LOADING HELPERS ───────────────────────────────────────────────────
+// Floating "spinner + Please wait…" indicator — used for page switches and
+// background saves so the app never feels like it silently froze during a
+// render or a Drive write. Names kept as _barStart/_barDone since every
+// call site (goPage, _gdriveSaveFile, _btnBusy) already uses them.
+let _barHideTimer=null,_barActive=0;
+function _barStart(label){
+  _barActive++;
+  const el=document.getElementById('globalLoader');
+  if(!el)return;
+  clearTimeout(_barHideTimer);
+  const txt=document.getElementById('globalLoaderText');
+  if(txt)txt.textContent=label||'Please wait…';
+  el.classList.add('show');
+}
+function _barDone(){
+  _barActive=Math.max(0,_barActive-1);
+  if(_barActive>0)return; // wait for all in-flight operations to finish
+  const el=document.getElementById('globalLoader');
+  if(!el)return;
+  // Small delay so quick operations don't just flash on/off
+  _barHideTimer=setTimeout(()=>{el.classList.remove('show');},150);
+}
+
+// Wraps an async action with a disabled/spinner button state, so every
+// Save/Submit/Calculate click gives immediate visual feedback instead of
+// looking unresponsive while it works. Restores the button either way.
+async function _btnBusy(btn,fn,label){
+  if(typeof btn==='string')btn=document.getElementById(btn);
+  if(!btn) return fn();
+  const origHtml=btn.innerHTML,wasDisabled=btn.disabled;
+  btn.disabled=true;
+  btn.classList.add('btn-busy');
+  btn.innerHTML=`<span class="btn-spinner"></span>${label||'Working…'}`;
+  _barStart();
+  try{
+    return await fn();
+  }finally{
+    btn.innerHTML=origHtml;
+    btn.disabled=wasDisabled;
+    btn.classList.remove('btn-busy');
+    _barDone();
+  }
+}
+
 // ─── FIX: XSS sanitization helper ────────────────────────────────────────────
 // Use this on ALL user-supplied strings before inserting into innerHTML
 function esc(s){
@@ -3935,6 +4009,7 @@ function getAllData(){
     credentials:JSON.parse(localStorage.getItem('lms7_creds')||'null'),
     profile:JSON.parse(localStorage.getItem('lms7_profile')||'null'),
     limits:JSON.parse(localStorage.getItem('lms7_limits')||'null'),
+    mpUnitCounts:JSON.parse(localStorage.getItem('lms7_mpUnitCounts')||'null'),
     leaveTypes:JSON.parse(localStorage.getItem('lms_leavetypes')||'null'),
     savedAt:new Date().toISOString(),
     savedBy:currentUser||'unknown',
@@ -4354,6 +4429,16 @@ function clearPageFilters(name){
 }
 
 function goPage(name,btn){
+  // Visual feedback: floating spinner + a brief content fade while the new
+  // page's data renders (covers both instant renders and the deferred
+  // chart/report renders below).
+  _barStart('Loading…');
+  const pc=document.querySelector('.page-content');
+  if(pc)pc.classList.add('pc-loading');
+  setTimeout(()=>{
+    if(pc)pc.classList.remove('pc-loading');
+    _barDone();
+  },220);
   // Clear filters on the page we're leaving + security wipe if leaving settings
   const currentPage=document.querySelector('.page.active');
   if(currentPage){
@@ -6005,7 +6090,10 @@ function importLeaveCsv(){
   };
   reader.readAsText(file);
 }
-function addLeave(){
+async function addLeave(btn){
+  return _btnBusy(btn,_addLeaveInner,'Saving…');
+}
+function _addLeaveInner(){
   const empId=(v('fEmpId')||'').trim(),type=v('fType'),start=v('fStart'),rawEnd=v('fEnd'),status=v('fStatus'),admin=(v('fAdmin')||'').trim();
   const contactNo=(v('fContact')||'').trim(),reason=(v('fReason')||'').trim();
   const rtw=(v('fRtw')||'').trim();
@@ -6787,7 +6875,10 @@ function empTab(name,btn){
   document.getElementById('etab-'+name).style.display='block';
   if(name==='bulk')renderBulkTable();
 }
-function addEmp(){
+async function addEmp(btn){
+  return _btnBusy(btn,_addEmpInner,'Adding…');
+}
+function _addEmpInner(){
   const id=(v('eId')||'').trim(),name=(v('eName')||'').trim(),unit=(v('eUnit')||'').trim();
   const type=v('eType'),firstShift=v('eFirstShift'),anchor=v('eAnchor'),baseRest=parseInt(v('eRest'));
   if(!id||!name||!unit||!anchor){showMsg('empMsg','Fill in ID, name, unit and anchor date.',false);return;}
@@ -7217,7 +7308,10 @@ let mpRatioChart=null;
 function getMpUnitCounts(){
   return JSON.parse(localStorage.getItem('lms7_mpUnitCounts')||'{}');
 }
-function saveMpRatioUnits(){
+async function saveMpRatioUnits(btn){
+  return _btnBusy(btn,_saveMpRatioUnitsInner,'Saving…');
+}
+async function _saveMpRatioUnitsInner(){
   const units=[...new Set(employees.map(e=>e.unit))].sort();
   const data={};
   units.forEach(u=>{
@@ -7225,6 +7319,8 @@ function saveMpRatioUnits(){
     data[u]=el?Math.max(0,parseInt(el.value)||0):0;
   });
   localStorage.setItem('lms7_mpUnitCounts',JSON.stringify(data));
+  save();
+  if(_gdriveReady) await _gdriveSaveFile().catch(e=>console.warn('Drive save (unit counts) failed:',e));
   const msg=document.getElementById('mpRatioMsg');
   if(msg){msg.style.color='#0F6E56';msg.textContent='✓ Saved.';setTimeout(()=>msg.textContent='',2000);}
 }
@@ -7243,7 +7339,6 @@ function initManpowerRatio(){
     masterSel.innerHTML='<option value="all">All Units</option>'+units.map(u=>'<option value="'+esc(u)+'">'+esc(u)+'</option>').join('');
     if(prev&&(prev==='all'||units.includes(prev)))masterSel.value=prev;
   }
-  buildMpRatioInputGrid();
   renderManpowerRatio();
   initMpProjectionChart();
 }
@@ -7256,22 +7351,6 @@ function onMasterUnitChange(){
   const mpChartUnit=document.getElementById('mpChartUnit');
   if(mpChartUnit)mpChartUnit.value=v;
   renderMpProjectionChart();
-}
-function buildMpRatioInputGrid(){
-  const units=[...new Set(activeEmployees().map(e=>e.unit))].sort();
-  const saved=getMpUnitCounts();
-  const grid=document.getElementById('mpRatioInputGrid');
-  if(!grid)return;
-  grid.innerHTML=units.map(u=>`
-    <div style="background:#F8FAFF;border:0.5px solid #D3D1C7;border-radius:8px;padding:8px 10px">
-      <div style="font-size:10px;font-weight:600;color:#1B3A6B;margin-bottom:4px">${u}</div>
-      <div style="display:flex;align-items:center;gap:6px">
-        <input type="number" id="mpUnit_${u}" min="0" value="${saved[u]||0}"
-          style="width:60px;border:0.5px solid #B4B2A9;border-radius:5px;padding:3px 6px;font-size:11px;text-align:center"
-          oninput="renderManpowerRatio()">
-        <span style="font-size:9px;color:#888780">units</span>
-      </div>
-    </div>`).join('');
 }
 function renderManpowerRatio(){
   const units=[...new Set(activeEmployees().map(e=>e.unit))].sort();
@@ -7360,7 +7439,7 @@ function renderManpowerRatio(){
     '<thead>'+
     '<tr>'+
       '<th style="width:12%;padding:10px 14px" rowspan="2">Unit Type</th>'+
-      '<th style="width:6%;text-align:center;padding:10px 6px" rowspan="2">Units</th>'+
+      '<th style="width:9%;text-align:center;padding:10px 6px" rowspan="2">Units<br><span style="font-size:8px;font-weight:400;color:#9AA5BB">(editable)</span></th>'+
       '<th style="width:7%;text-align:center;padding:10px 6px;background:#F0F4FB" rowspan="2" title="Total active employees in this unit">Head-<br>count</th>'+
       '<th style="width:24%;text-align:center;padding:8px;border-bottom:0.5px solid #D3D1C7" colspan="3">Required</th>'+
       '<th style="width:36%;text-align:center;padding:8px;border-bottom:0.5px solid #D3D1C7" colspan="4">Actual by Role (all active employees)</th>'+
@@ -7386,7 +7465,9 @@ function renderManpowerRatio(){
       const statusText=noUnits?'—':ok?'+'+r.gap:r.gap+'';
       return '<tr style="border-bottom:0.5px solid #EEECE4">'+
         '<td style="padding:9px 14px"><span style="font-weight:600;color:#1B3A6B;font-size:11px">'+r.u+'</span></td>'+
-        '<td style="text-align:center;font-size:14px;font-weight:700;color:#1B3A6B">'+r.unitCount+'</td>'+
+        '<td style="text-align:center;padding:5px 4px"><input type="number" id="mpUnit_'+r.u+'" min="0" value="'+r.unitCount+'" '+
+          'style="width:52px;border:0.5px solid #B4B2A9;border-radius:5px;padding:3px 4px;font-size:13px;font-weight:700;color:#1B3A6B;text-align:center" '+
+          'onchange="renderManpowerRatio()" onkeydown="if(event.key===\'Enter\')this.blur()"></td>'+
         '<td style="text-align:center;font-size:13px;font-weight:700;color:#185FA5;background:#F0F4FB">'+r.headcount+'</td>'+
         '<td style="text-align:center;background:#F4F7FC;padding:7px 4px"><span style="font-size:12px;font-weight:700;color:#185FA5">'+r.regRequired+'</span></td>'+
         '<td style="text-align:center;background:#FDF8F0;padding:7px 4px"><span style="font-size:12px;font-weight:700;color:#A07040">'+r.relRequired+'</span></td>'+
@@ -8600,6 +8681,7 @@ function loadDataFromObject(data){
   if(data.credentials)localStorage.setItem('lms7_creds',JSON.stringify(data.credentials));
   if(data.profile)localStorage.setItem('lms7_profile',JSON.stringify(data.profile));
   if(data.limits)localStorage.setItem('lms7_limits',JSON.stringify(data.limits));
+  if(data.mpUnitCounts)localStorage.setItem('lms7_mpUnitCounts',JSON.stringify(data.mpUnitCounts));
   if(data.leaveTypes){localStorage.setItem('lms_leavetypes',JSON.stringify(data.leaveTypes));invalidateLeaveTypesCache();}
   // FIX: Only overwrite the users array from Drive if it is genuinely newer than what
   // we have locally. This prevents a race where the user changes credentials and exits
@@ -8935,7 +9017,7 @@ function initApp(){
         </div>
       </div>
       <div class="form-actions" style="margin-top:14px">
-        <button class="btn write-btn" style="background:#A32D2D;color:#fff" onclick="confirmResign()">Confirm Resignation</button>
+        <button class="btn write-btn" style="background:#A32D2D;color:#fff" onclick="confirmResign(this)">Confirm Resignation</button>
         <button class="btn btn-ghost" onclick="closeResignModal()">Cancel</button>
         <div id="resignMsg" style="font-size:10px;align-self:center"></div>
       </div>
@@ -8996,7 +9078,10 @@ function closeResignModal(){
   document.getElementById('resignModal').style.display='none';
   _resignEmpId=null;
 }
-function confirmResign(){
+async function confirmResign(btn){
+  return _btnBusy(btn,_confirmResignInner,'Processing…');
+}
+function _confirmResignInner(){
   const emp=ge(_resignEmpId);if(!emp)return;
   const lastDay=document.getElementById('resignLastDay').value;
   const reason=document.getElementById('resignReason').value;

@@ -472,6 +472,13 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 <!-- ═══ FORGOT PASSWORD MODAL ═══ -->
 <div id="forgotPwModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:16px;padding:28px 32px;width:340px;max-width:94vw;box-shadow:0 8px 32px rgba(0,0,0,.22)">
+    <!-- Step 0: Locked out -->
+    <div id="fpLocked" style="display:none;text-align:center">
+      <div style="font-size:26px;margin-bottom:10px">⏳</div>
+      <div style="font-size:13px;font-weight:700;color:#A32D2D;margin-bottom:8px">Too Many Attempts</div>
+      <div style="font-size:10px;color:#5F5E5A;margin-bottom:16px">Identity verification is locked. Try again in <strong id="fpLockedMins">10</strong> minute(s).</div>
+      <button class="login-btn" onclick="closeForgotPassword()">Back to Login</button>
+    </div>
     <!-- Step 1: Enter username -->
     <div id="fpStep1">
       <div style="font-size:14px;font-weight:700;color:#1B3A6B;margin-bottom:4px">🔑 Forgot Password</div>
@@ -486,24 +493,34 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
     <!-- Step 2: Confirm via recovery email -->
     <div id="fpStep2" style="display:none">
       <div style="font-size:14px;font-weight:700;color:#1B3A6B;margin-bottom:4px">🔑 Confirm Your Identity</div>
-      <div style="font-size:10px;color:#888780;margin-bottom:14px">A recovery email is registered for this account. Enter it exactly to reset the admin password to the default.</div>
+      <div style="font-size:10px;color:#888780;margin-bottom:14px">A recovery email is registered for this account. Enter it exactly to verify your identity.</div>
       <div style="background:#F0F4FB;border-radius:8px;padding:8px 12px;font-size:10px;color:#1B3A6B;margin-bottom:14px">
         Recovery email on file: <strong id="fpMaskedEmail"></strong>
       </div>
       <div class="login-field"><label>Enter your recovery email</label><input type="email" id="fpEmailInput" placeholder="your@email.com" autocomplete="off" onkeydown="if(event.key==='Enter')fpConfirmReset()"></div>
       <div id="fpStep2Err" style="font-size:10px;color:#A32D2D;background:#FCEBEB;border-radius:5px;padding:5px 9px;margin-top:6px;display:none"></div>
       <div style="display:flex;gap:8px;margin-top:14px">
-        <button class="login-btn" style="flex:1;background:#A32D2D" onclick="fpConfirmReset()">Reset Password</button>
+        <button class="login-btn" style="flex:1" onclick="fpConfirmReset()">Verify</button>
+        <button onclick="closeForgotPassword()" style="flex:1;background:none;border:0.5px solid #D3D1C7;border-radius:8px;padding:9px;font-size:12px;cursor:pointer;color:#5F5E5A">Cancel</button>
+      </div>
+    </div>
+    <!-- Step 2b: Set a new password directly -->
+    <div id="fpStep2b" style="display:none">
+      <div style="font-size:14px;font-weight:700;color:#1B3A6B;margin-bottom:4px">🔐 Set New Password</div>
+      <div style="font-size:10px;color:#888780;margin-bottom:14px">Identity verified. Choose a new admin password.</div>
+      <div class="login-field"><label>New password</label><input type="password" id="fpNewPass" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')document.getElementById('fpNewPassConfirm').focus()"></div>
+      <div class="login-field"><label>Confirm new password</label><input type="password" id="fpNewPassConfirm" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')fpSetNewPassword()"></div>
+      <div id="fpStep2bErr" style="font-size:10px;color:#A32D2D;background:#FCEBEB;border-radius:5px;padding:5px 9px;margin-top:6px;display:none"></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="login-btn" style="flex:1" onclick="fpSetNewPassword()">Set Password</button>
         <button onclick="closeForgotPassword()" style="flex:1;background:none;border:0.5px solid #D3D1C7;border-radius:8px;padding:9px;font-size:12px;cursor:pointer;color:#5F5E5A">Cancel</button>
       </div>
     </div>
     <!-- Step 3: Success -->
     <div id="fpStep3" style="display:none;text-align:center">
       <div style="font-size:26px;margin-bottom:10px">✅</div>
-      <div style="font-size:13px;font-weight:700;color:#085041;margin-bottom:8px">Password Reset</div>
-      <div style="font-size:10px;color:#5F5E5A;margin-bottom:6px">The admin password has been reset to the default.</div>
-      <div style="background:#F1EFE8;border-radius:8px;padding:8px 12px;font-size:10px;color:#5F5E5A;margin-bottom:16px">Contact your system administrator if you do not know the default password.</div>
-      <div style="font-size:9px;color:#A32D2D;margin-bottom:16px">⚠ You will be required to set a new password immediately after logging in.</div>
+      <div style="font-size:13px;font-weight:700;color:#085041;margin-bottom:8px">Password Updated</div>
+      <div style="font-size:10px;color:#5F5E5A;margin-bottom:16px">You can now sign in with your new password.</div>
       <button class="login-btn" onclick="closeForgotPassword()">Back to Login</button>
     </div>
   </div>
@@ -1718,19 +1735,60 @@ async function ensureDefaultAdmin(){
   return users;
 }
 
-// ── Forgot Password — email-verified reset ──────────────────────────────────
+// ── Forgot Password — email-verified, in-place password set ─────────────────
 let _fpTargetUser=null; // the user object being reset
 
+// SECURITY: brute-force limiter on identity-verification guesses (username + email).
+// 5 failed guesses across either step locks the flow for 10 minutes.
+const FP_MAX_ATTEMPTS = 5;
+const FP_LOCKOUT_MS   = 10 * 60 * 1000; // 10 minutes
+let _fpAttempts     = 0;
+let _fpLockedUntil  = 0;
+
+function _fpShowLocked(){
+  const mins=Math.max(1,Math.ceil((_fpLockedUntil-Date.now())/60000));
+  document.getElementById('fpLockedMins').textContent=mins;
+  document.getElementById('fpStep1').style.display='none';
+  document.getElementById('fpStep2').style.display='none';
+  document.getElementById('fpStep2b').style.display='none';
+  document.getElementById('fpStep3').style.display='none';
+  document.getElementById('fpLocked').style.display='';
+}
+
+// Records a failed guess; locks the flow once the limit is hit.
+// Returns true if the flow just became locked (caller should stop).
+function _fpRegisterFailure(errEl,msg){
+  _fpAttempts++;
+  if(_fpAttempts>=FP_MAX_ATTEMPTS){
+    _fpLockedUntil=Date.now()+FP_LOCKOUT_MS;
+    _fpAttempts=0;
+    _fpShowLocked();
+    return true;
+  }
+  const rem=FP_MAX_ATTEMPTS-_fpAttempts;
+  errEl.textContent=msg+` ${rem} attempt(s) remaining.`;
+  errEl.style.display='block';
+  return false;
+}
+
 function openForgotPassword(){
+  const m=document.getElementById('forgotPwModal');
+  if(Date.now() < _fpLockedUntil){
+    m.style.display='flex';
+    _fpShowLocked();
+    return;
+  }
   _fpTargetUser=null;
   document.getElementById('fpUsername').value='';
   document.getElementById('fpEmailInput').value='';
   document.getElementById('fpStep1Err').style.display='none';
   document.getElementById('fpStep2Err').style.display='none';
+  document.getElementById('fpLocked').style.display='none';
   document.getElementById('fpStep1').style.display='';
   document.getElementById('fpStep2').style.display='none';
+  document.getElementById('fpStep2b').style.display='none';
   document.getElementById('fpStep3').style.display='none';
-  document.getElementById('forgotPwModal').style.display='flex';
+  m.style.display='flex';
   setTimeout(()=>document.getElementById('fpUsername').focus(),100);
 }
 
@@ -1750,12 +1808,13 @@ function _maskEmail(email){
 }
 
 function fpCheckUsername(){
+  if(Date.now() < _fpLockedUntil){_fpShowLocked();return;}
   const un=(document.getElementById('fpUsername').value||'').trim().toLowerCase();
   const err=document.getElementById('fpStep1Err');
   if(!un){err.textContent='Please enter your username.';err.style.display='block';return;}
   const users=getUsersArray()||[];
   const uObj=users.find(x=>x.username.toLowerCase()===un&&x.role==='admin');
-  if(!uObj){err.textContent='No admin account found with that username.';err.style.display='block';return;}
+  if(!uObj){_fpRegisterFailure(err,'No admin account found with that username.');return;}
   // Check recovery email on profile — only the profile owner's email is checked
   const prof=getAdminProfile();
   const recoveryEmail=prof.recoveryEmail||'';
@@ -1771,36 +1830,53 @@ function fpCheckUsername(){
 }
 
 async function fpConfirmReset(){
+  if(Date.now() < _fpLockedUntil){_fpShowLocked();return;}
   const entered=(document.getElementById('fpEmailInput').value||'').trim().toLowerCase();
   const err=document.getElementById('fpStep2Err');
   if(!entered){err.textContent='Please enter the recovery email.';err.style.display='block';return;}
   const prof=getAdminProfile();
   const registered=(prof.recoveryEmail||'').toLowerCase();
   if(entered!==registered){
-    err.textContent='Email does not match. Access denied.';
-    err.style.display='block';
     // Clear input and refocus for security
     document.getElementById('fpEmailInput').value='';
+    _fpRegisterFailure(err,'Email does not match. Access denied.');
     return;
   }
   if(!_fpTargetUser){err.textContent='Session expired. Please start again.';err.style.display='block';return;}
-  // Perform the reset
+  // Identity verified — reset the guess counter and let the user set their own
+  // new password directly, instead of bouncing through a shared default password.
+  _fpAttempts=0;
+  document.getElementById('fpStep2').style.display='none';
+  document.getElementById('fpStep2b').style.display='';
+  document.getElementById('fpNewPass').value='';
+  document.getElementById('fpNewPassConfirm').value='';
+  document.getElementById('fpStep2bErr').style.display='none';
+  setTimeout(()=>document.getElementById('fpNewPass').focus(),100);
+}
+
+async function fpSetNewPassword(){
+  const np=document.getElementById('fpNewPass').value;
+  const nc=document.getElementById('fpNewPassConfirm').value;
+  const err=document.getElementById('fpStep2bErr');
+  if(!np||np.length<6){err.textContent='Password must be at least 6 characters.';err.style.display='block';return;}
+  if(np!==nc){err.textContent='Passwords do not match.';err.style.display='block';return;}
+  if(!_fpTargetUser){err.textContent='Session expired. Please start again.';err.style.display='block';return;}
   try{
     const users=getUsersArray()||[];
     const uObj=users.find(x=>x.username===_fpTargetUser.username);
     if(!uObj){err.textContent='User not found.';err.style.display='block';return;}
-    uObj.hash=_defaultAdminHash;
-    uObj.mustChangePassword=true;
+    uObj.hash=await hashPass(np);
+    uObj.mustChangePassword=false;
     saveUsersArray(users);
     if(_gdriveReady) await _gdriveSaveFile();
-    document.getElementById('fpStep2').style.display='none';
+    document.getElementById('fpStep2b').style.display='none';
     document.getElementById('fpStep3').style.display='';
     // Pre-fill login username for convenience
     document.getElementById('loginUser').value=_fpTargetUser.username;
     document.getElementById('loginPass').value='';
     _fpTargetUser=null;
   }catch(e){
-    err.textContent='Reset failed: '+e.message;err.style.display='block';
+    err.textContent='Update failed: '+e.message;err.style.display='block';
   }
 }
 

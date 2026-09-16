@@ -10,10 +10,14 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;color:#2C2C2A;min-height:100vh}
 
-/* ═══ GLOBAL LOADING — floating spinner + "Please wait" indicator ═══ */
-#globalLoader{position:fixed;bottom:22px;right:22px;background:#1B3A6B;color:#fff;padding:10px 16px 10px 13px;border-radius:24px;display:flex;align-items:center;gap:9px;font-size:11px;font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:9999;opacity:0;transform:translateY(8px);transition:opacity .2s ease,transform .2s ease;pointer-events:none}
-#globalLoader.show{opacity:1;transform:translateY(0)}
-#globalLoader .gl-spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:btnSpin .6s linear infinite;flex-shrink:0}
+/* ═══ PAGE LOADING — centered "Please wait" modal (used for page navigation) ═══ */
+#globalLoader{position:fixed;inset:0;background:rgba(15,25,45,.32);z-index:9999;display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;transition:opacity .18s ease;pointer-events:none}
+#globalLoader.show{opacity:1;visibility:visible;pointer-events:auto}
+#globalLoaderCard{background:#fff;border-radius:16px;padding:26px 40px;display:flex;flex-direction:column;align-items:center;gap:13px;box-shadow:0 16px 48px rgba(0,0,0,.28);transform:scale(.94);transition:transform .18s ease;min-width:180px}
+#globalLoader.show #globalLoaderCard{transform:scale(1)}
+.gl-spin-lg{width:32px;height:32px;border:3px solid #E4E8F0;border-top-color:#1B3A6B;border-radius:50%;animation:btnSpin .7s linear infinite}
+#globalLoaderText{font-size:13px;font-weight:700;color:#1B3A6B}
+#globalLoaderSubtext{font-size:10px;color:#9AA5BB;display:none;text-align:center}
 
 /* ═══ GLOBAL LOADING — button busy state ═══ */
 .btn-spinner{display:inline-block;width:11px;height:11px;border:1.5px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:btnSpin .6s linear infinite;vertical-align:-1.5px;margin-right:6px}
@@ -21,8 +25,9 @@ body{font-family:system-ui,sans-serif;color:#2C2C2A;min-height:100vh}
 @keyframes btnSpin{to{transform:rotate(360deg)}}
 button.btn-busy,button[disabled].btn-busy{opacity:.75;cursor:wait}
 
-/* ═══ GLOBAL LOADING — page-content fade while a page swaps in ═══ */
-.page-content.pc-loading{opacity:.45;transition:opacity .12s ease}
+/* ═══ PAGE CHANGE ANIMATION — smooth fade + rise when a page becomes active ═══ */
+@keyframes pageEnter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.page.page-anim{animation:pageEnter .28s ease}
 
 /* ═══ GLOBAL LOADING — inline panel skeleton shimmer ═══ */
 .skel{position:relative;overflow:hidden;background:#F1EFE8;border-radius:6px}
@@ -450,7 +455,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 </style>
 </head>
 <body>
-<div id="globalLoader"><span class="gl-spin"></span><span id="globalLoaderText">Please wait…</span></div>
+<div id="globalLoader"><div id="globalLoaderCard"><div class="gl-spin-lg"></div><div id="globalLoaderText">Please wait…</div><div id="globalLoaderSubtext">Taking a while longer than usual…</div></div></div>
 
 <!-- ═══ GENERATING OVERLAY ═══ -->
 <div id="genOverlay"><div class="spinner"></div><p id="genMsg">Generating report…</p></div>
@@ -1558,7 +1563,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             <span style="font-size:10px;color:#5F5E5A">Date</span>
             <input type="date" id="mpRatioDate" class="finput" style="width:130px" onchange="renderManpowerRatio()">
             <button class="btn btn-ghost" onclick="resetMpRatioDate()" style="font-size:10px;padding:3px 9px">Today</button>
-            <button class="btn btn-primary" onclick="renderManpowerRatio()" style="font-size:11px">Calculate</button>
+            <button class="btn btn-primary" onclick="refreshManpowerRatio()" style="font-size:11px">Calculate</button>
             <button class="btn btn-ghost" onclick="saveMpRatioUnits(this)" style="font-size:11px">Save unit counts</button>
             <button class="btn btn-pdf" onclick="exportMpRatioPDF()">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="10" height="12" rx="1"/><path d="M6 6h4M6 9h4M6 12h2"/></svg>Export PDF
@@ -2576,7 +2581,6 @@ async function _gdriveSaveFile(){
   const body = JSON.stringify(payload, null, 2);
   const statusEl=document.getElementById('gdriveSyncStatus');
   if(statusEl) statusEl.textContent='Saving…';
-  _barStart('Saving…');
   try{
     await _gfetch(`${GDRIVE_UPLOAD}/files/${_gdriveFileId}?uploadType=media`, {
       method:'PATCH',
@@ -2594,8 +2598,6 @@ async function _gdriveSaveFile(){
     console.warn('Drive save error:',e);
     _gdriveSetMsg('Save error: '+e.message+'. Data saved locally.','err');
     if(statusEl){ statusEl.textContent='Save failed — retrying on next change'; }
-  }finally{
-    _barDone();
   }
 }
 
@@ -3924,33 +3926,54 @@ let charts={};
 let _overrideGen=0;
 function _bumpOverrideGen(){_overrideGen++;_clearSchedCache();}
 
-// ─── GLOBAL LOADING HELPERS ───────────────────────────────────────────────────
-// Floating "spinner + Please wait…" indicator — used for page switches and
-// background saves so the app never feels like it silently froze during a
-// render or a Drive write. Names kept as _barStart/_barDone since every
-// call site (goPage, _gdriveSaveFile, _btnBusy) already uses them.
-let _barHideTimer=null,_barActive=0;
+// ─── PAGE LOADING HELPER ──────────────────────────────────────────────────────
+// Centered "Please wait…" modal used specifically for page navigation
+// (goPage). Two rules make it actually feel right instead of flashing:
+//  1. It's shown BEFORE any heavy synchronous render work runs (goPage defers
+//     that work by a couple of animation frames so the browser gets a chance
+//     to paint the modal first — otherwise a big render blocks the main
+//     thread and the modal never gets drawn until the work is already done).
+//  2. Once shown, it stays up for a minimum of PAGE_LOADER_MIN_MS so quick
+//     pages don't just flicker. If a page takes longer than
+//     PAGE_LOADER_LONG_MS, the modal grows a reassuring "still working" line.
+const PAGE_LOADER_MIN_MS=1500;
+const PAGE_LOADER_LONG_MS=3000;
+let _barActive=0,_barShownAt=0,_barMinTimer=null,_barLongTimer=null;
+
 function _barStart(label){
   _barActive++;
   const el=document.getElementById('globalLoader');
   if(!el)return;
-  clearTimeout(_barHideTimer);
+  clearTimeout(_barMinTimer);
+  clearTimeout(_barLongTimer);
   const txt=document.getElementById('globalLoaderText');
+  const sub=document.getElementById('globalLoaderSubtext');
   if(txt)txt.textContent=label||'Please wait…';
+  if(sub)sub.style.display='none';
   el.classList.add('show');
+  _barShownAt=Date.now();
+  _barLongTimer=setTimeout(()=>{ if(sub)sub.style.display='block'; },PAGE_LOADER_LONG_MS);
 }
 function _barDone(){
   _barActive=Math.max(0,_barActive-1);
-  if(_barActive>0)return; // wait for all in-flight operations to finish
+  if(_barActive>0)return; // wait for all in-flight page loads to finish
   const el=document.getElementById('globalLoader');
   if(!el)return;
-  // Small delay so quick operations don't just flash on/off
-  _barHideTimer=setTimeout(()=>{el.classList.remove('show');},150);
+  const elapsed=Date.now()-_barShownAt;
+  const remaining=Math.max(0,PAGE_LOADER_MIN_MS-elapsed);
+  clearTimeout(_barMinTimer);
+  _barMinTimer=setTimeout(()=>{
+    el.classList.remove('show');
+    clearTimeout(_barLongTimer);
+  },remaining);
 }
 
 // Wraps an async action with a disabled/spinner button state, so every
 // Save/Submit/Calculate click gives immediate visual feedback instead of
 // looking unresponsive while it works. Restores the button either way.
+// Deliberately does NOT touch the centered page-loader above — a quick
+// button action (add employee, save a record) shouldn't force a 1.5s
+// full-screen modal; its own inline spinner is enough.
 async function _btnBusy(btn,fn,label){
   if(typeof btn==='string')btn=document.getElementById(btn);
   if(!btn) return fn();
@@ -3958,14 +3981,12 @@ async function _btnBusy(btn,fn,label){
   btn.disabled=true;
   btn.classList.add('btn-busy');
   btn.innerHTML=`<span class="btn-spinner"></span>${label||'Working…'}`;
-  _barStart();
   try{
     return await fn();
   }finally{
     btn.innerHTML=origHtml;
     btn.disabled=wasDisabled;
     btn.classList.remove('btn-busy');
-    _barDone();
   }
 }
 
@@ -4429,16 +4450,23 @@ function clearPageFilters(name){
 }
 
 function goPage(name,btn){
-  // Visual feedback: floating spinner + a brief content fade while the new
-  // page's data renders (covers both instant renders and the deferred
-  // chart/report renders below).
-  _barStart('Loading…');
-  const pc=document.querySelector('.page-content');
-  if(pc)pc.classList.add('pc-loading');
-  setTimeout(()=>{
-    if(pc)pc.classList.remove('pc-loading');
-    _barDone();
-  },220);
+  // Show the "Please wait…" modal RIGHT NOW (cheap DOM write) — then yield
+  // two animation frames before doing any real work. Without this, a big
+  // synchronous render (e.g. Work Schedule with a large dataset) blocks the
+  // main thread immediately after we ask for the modal, so the browser
+  // never gets a chance to actually paint it — it would only flash for a
+  // moment once the heavy work is already finished. Two rAFs reliably wait
+  // for a full paint cycle to complete first.
+  _barStart('Please wait…');
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      _goPageRender(name,btn);
+      _barDone();
+    });
+  });
+}
+
+function _goPageRender(name,btn){
   // Clear filters on the page we're leaving + security wipe if leaving settings
   const currentPage=document.querySelector('.page.active');
   if(currentPage){
@@ -4448,7 +4476,13 @@ function goPage(name,btn){
   }
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
+  const newPage=document.getElementById('page-'+name);
+  newPage.classList.add('active');
+  // Smooth page-change animation — retrigger by removing/re-adding the class
+  // (forcing a reflow in between) so it plays every time, not just once.
+  newPage.classList.remove('page-anim');
+  void newPage.offsetWidth;
+  newPage.classList.add('page-anim');
   if(btn)btn.classList.add('active');
   document.getElementById('topbarTitle').textContent=PAGE_TITLES[name]||name;
   if(name==='home'){renderHome();setTimeout(renderHomeCharts,200);}
@@ -7321,6 +7355,7 @@ async function _saveMpRatioUnitsInner(){
   localStorage.setItem('lms7_mpUnitCounts',JSON.stringify(data));
   save();
   if(_gdriveReady) await _gdriveSaveFile().catch(e=>console.warn('Drive save (unit counts) failed:',e));
+  if(document.getElementById('mpProjectionChart'))renderMpProjectionChart();
   const msg=document.getElementById('mpRatioMsg');
   if(msg){msg.style.color='#0F6E56';msg.textContent='✓ Saved.';setTimeout(()=>msg.textContent='',2000);}
 }
@@ -7351,6 +7386,14 @@ function onMasterUnitChange(){
   const mpChartUnit=document.getElementById('mpChartUnit');
   if(mpChartUnit)mpChartUnit.value=v;
   renderMpProjectionChart();
+}
+// Keeps the summary table AND the projection/per-unit breakdown charts below
+// in sync whenever a unit count is edited — previously only the summary
+// table refreshed, so the charts' "Units" reference line kept showing stale
+// (often 0) values until the page was reloaded.
+function refreshManpowerRatio(){
+  renderManpowerRatio();
+  if(document.getElementById('mpProjectionChart'))renderMpProjectionChart();
 }
 function renderManpowerRatio(){
   const units=[...new Set(activeEmployees().map(e=>e.unit))].sort();
@@ -7467,7 +7510,7 @@ function renderManpowerRatio(){
         '<td style="padding:9px 14px"><span style="font-weight:600;color:#1B3A6B;font-size:11px">'+r.u+'</span></td>'+
         '<td style="text-align:center;padding:5px 4px"><input type="number" id="mpUnit_'+r.u+'" min="0" value="'+r.unitCount+'" '+
           'style="width:52px;border:0.5px solid #B4B2A9;border-radius:5px;padding:3px 4px;font-size:13px;font-weight:700;color:#1B3A6B;text-align:center" '+
-          'onchange="renderManpowerRatio()" onkeydown="if(event.key===\'Enter\')this.blur()"></td>'+
+          'onchange="refreshManpowerRatio()" onkeydown="if(event.key===\'Enter\')this.blur()"></td>'+
         '<td style="text-align:center;font-size:13px;font-weight:700;color:#185FA5;background:#F0F4FB">'+r.headcount+'</td>'+
         '<td style="text-align:center;background:#F4F7FC;padding:7px 4px"><span style="font-size:12px;font-weight:700;color:#185FA5">'+r.regRequired+'</span></td>'+
         '<td style="text-align:center;background:#FDF8F0;padding:7px 4px"><span style="font-size:12px;font-weight:700;color:#A07040">'+r.relRequired+'</span></td>'+
@@ -7560,7 +7603,7 @@ function renderMpRatioChart(totalRequired){
       },
       scales:{
         x:{ticks:{font:{size:9},maxRotation:45,maxTicksLimit:Math.min(days,15)},grid:{display:false}},
-        y:{beginAtZero:false,min:minVal,max:Math.ceil(maxY),
+        y:{beginAtZero:true,min:0,max:Math.ceil(maxY),
            ticks:{font:{size:9},stepSize:yStep},grid:{color:'rgba(0,0,0,.05)'},
            title:{display:true,text:'No. of Employees',font:{size:9},color:'#5F5E5A'}}
       }
@@ -7767,7 +7810,7 @@ function renderMpProjectionChart(){
       scales:{
         x:{ticks:{font:{size:9},maxRotation:45,maxTicksLimit:tickLimit},grid:{display:false}},
         y:{
-          beginAtZero:false,min:minY,max:Math.ceil(maxY),
+          beginAtZero:true,min:0,max:Math.ceil(maxY),
           ticks:{font:{size:9},stepSize:1},
           grid:{color:'rgba(0,0,0,.05)'},
           title:{display:true,text:'No. of Employees',font:{size:9},color:'#5F5E5A'}
@@ -7949,7 +7992,7 @@ function renderMpUnitBreakdown(labels,startD,days,totalUnitsReq){
         },
         scales:{
           x:{ticks:{font:{size:8},maxRotation:45,maxTicksLimit:tickLimit},grid:{display:false}},
-          y:{beginAtZero:false,min:minY,max:Math.ceil(maxY),
+          y:{beginAtZero:true,min:0,max:Math.ceil(maxY),
              ticks:{font:{size:8},stepSize:1},
              grid:{color:'rgba(0,0,0,.05)'},
              title:{display:true,text:'Employees',font:{size:8},color:'#5F5E5A'}}
@@ -8528,7 +8571,7 @@ async function generateMpReport(){
         },
         scales:{
           x:{ticks:{font:{size:8},maxRotation:45,maxTicksLimit:Math.min(days,14)},grid:{display:false}},
-          y:{beginAtZero:false,min:minY,max:Math.ceil(maxY),
+          y:{beginAtZero:true,min:0,max:Math.ceil(maxY),
              ticks:{font:{size:8},stepSize:1},grid:{color:'rgba(0,0,0,.06)'},
              title:{display:true,text:'Avail.',font:{size:8},color:'#5F5E5A'}}
         }

@@ -1122,6 +1122,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
       <div style="display:flex;gap:0;border-bottom:0.5px solid #D3D1C7;margin-bottom:.75rem;background:#fff;border-radius:10px 10px 0 0;overflow:hidden;border:0.5px solid #D3D1C7">
         <button class="emp-tab active" onclick="empTab('single',this)" style="padding:8px 16px;font-size:11px;border:none;background:none;cursor:pointer;border-bottom:2px solid #1B3A6B;font-weight:500;color:#2C2C2A">Add single</button>
         <button class="emp-tab" onclick="empTab('import',this)" style="padding:8px 16px;font-size:11px;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#5F5E5A">CSV import</button>
+        <button class="emp-tab" onclick="empTab('resign',this)" style="padding:8px 16px;font-size:11px;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#5F5E5A">Bulk resign</button>
         <button class="emp-tab" onclick="empTab('rest',this)" style="padding:8px 16px;font-size:11px;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#5F5E5A">Change rest day</button>
         <button class="emp-tab" onclick="empTab('bulk',this)" style="padding:8px 16px;font-size:11px;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#5F5E5A">Bulk edit</button>
       </div>
@@ -1166,6 +1167,31 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             </div>
             <div class="form-actions"><button class="btn btn-primary write-btn" onclick="importCsv()">Import CSV</button><div id="csvMsg"></div></div>
             <div id="csvPreview" style="margin-top:10px"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="emp-tab-content" id="etab-resign" style="display:none">
+        <div class="form-section">
+          <div class="form-head">Bulk resign via CSV</div>
+          <div class="form-body">
+            <div style="background:#F1EFE8;border-radius:8px;padding:12px;margin-bottom:12px;font-size:10px;color:#5F5E5A;line-height:1.8">
+              <strong style="color:#1B3A6B">Required CSV columns (row 1 = header):</strong><br>
+              <code style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7">Emp ID, Last Working Day, Separation Type, Remarks</code><br>
+              Last Working Day: <code>YYYY-MM-DD</code> | Separation Type: <code>Resigned</code> <code>Terminated</code> <code>Retired</code> <code>AWOL</code> <code>End of Contract</code> <code>Other</code> (optional, defaults to Resigned) | Remarks: optional<br>
+              Employees stay on schedules until their last working day passes. Records are kept and can be reinstated anytime.<br>
+              <button class="btn btn-ghost" style="margin-top:8px;font-size:10px;padding:4px 10px" onclick="downloadResignTemplate()">Download template</button>
+            </div>
+            <div class="ff" style="margin-bottom:10px">
+              <label>Select CSV file</label>
+              <input type="file" id="resignCsvFile" accept=".csv" onchange="clearResignCsv()" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-ghost" onclick="previewResignCsv()">Preview</button>
+              <button class="btn write-btn" id="resignCsvConfirmBtn" style="background:#A32D2D;color:#fff;display:none" onclick="confirmResignCsv(this)">Confirm resignation (<span id="resignCsvCount">0</span>)</button>
+              <div id="resignCsvMsg"></div>
+            </div>
+            <div id="resignCsvPreview" style="margin-top:10px"></div>
           </div>
         </div>
       </div>
@@ -7080,6 +7106,86 @@ function parseCSVLine(line){
   const res=[];let cur='';let inQ=false;
   for(const c of line){if(c==='"'){inQ=!inQ;}else if(c===','&&!inQ){res.push(cur);cur='';}else{cur+=c;}}
   res.push(cur);return res;
+}
+// ─── BULK RESIGN VIA CSV ─────────────────────────────────────────────────────
+// Two-step: preview validates every row, confirm applies only the valid ones.
+// Applies the same fields as the single Resign modal (_confirmResignInner).
+const RESIGN_TYPES=['Resigned','Terminated','Retired','AWOL','End of Contract','Other'];
+let _resignCsvRows=[];
+function downloadResignTemplate(){
+  const csv='Emp ID,Last Working Day,Separation Type,Remarks\nEMP-014,2026-10-15,Resigned,Personal reasons\nEMP-022,2026-10-31,End of Contract,\n';
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='bulk_resign_template.csv';a.click();
+}
+function clearResignCsv(){
+  _resignCsvRows=[];
+  document.getElementById('resignCsvPreview').innerHTML='';
+  document.getElementById('resignCsvConfirmBtn').style.display='none';
+}
+function previewResignCsv(){
+  const file=document.getElementById('resignCsvFile').files[0];
+  clearResignCsv();
+  if(!file){showMsg('resignCsvMsg','Select a CSV file first.',false);return;}
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const lines=e.target.result.replace(/^\uFEFF/,'').split('\n').map(l=>l.trim()).filter(Boolean);
+    if(lines.length<2){showMsg('resignCsvMsg','No data rows found.',false);return;}
+    const rows=[],seen=new Set();
+    lines.slice(1).forEach((line,i)=>{
+      const cols=parseCSVLine(line).map(c=>c.trim());
+      const [empId='',lastRaw='',typeRaw='',remarks='']=cols;
+      const row={rowNo:i+2,empId,name:'',lastDay:'',reason:'',remarks,status:'ok',note:''};
+      rows.push(row);
+      if(!empId){row.status='error';row.note='Emp ID missing';return;}
+      const emp=employees.find(x=>x.id.toLowerCase()===empId.toLowerCase());
+      if(!emp){row.status='error';row.note='Employee not found';return;}
+      row.empId=emp.id;row.name=emp.name;
+      if(seen.has(emp.id)){row.status='skip';row.note='Duplicate row in file';return;}
+      seen.add(emp.id);
+      if(emp.active===false){row.status='skip';row.note='Already resigned'+(emp.lastWorkingDay?' (last day '+emp.lastWorkingDay+')':'');return;}
+      const lastDay=normalizeDate(lastRaw);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(lastDay)){row.status='error';row.note='Last working day must be YYYY-MM-DD';return;}
+      row.lastDay=lastDay;
+      const reason=typeRaw?RESIGN_TYPES.find(t=>t.toLowerCase()===typeRaw.toLowerCase()):'Resigned';
+      if(!reason){row.status='error';row.note='Unknown separation type "'+typeRaw+'"';return;}
+      row.reason=reason;
+    });
+    _resignCsvRows=rows.filter(r=>r.status==='ok');
+    const nErr=rows.filter(r=>r.status==='error').length,nSkip=rows.filter(r=>r.status==='skip').length;
+    const badge={ok:'b-approved',skip:'b-pending',error:'b-cancelled'},label={ok:'will resign',skip:'skipped',error:'error'};
+    document.getElementById('resignCsvPreview').innerHTML=`<div style="font-size:10px;font-weight:500;color:#5F5E5A;margin-bottom:4px">Preview: ${_resignCsvRows.length} to resign, ${nSkip} skipped, ${nErr} errors${nErr?' (fix the file and preview again, or confirm to apply only the valid rows)':''}</div>
+    <div style="max-height:300px;overflow-y:auto;border:0.5px solid #D3D1C7;border-radius:8px">
+    <table class="tbl" style="font-size:10px"><thead><tr><th>Row</th><th>Emp ID</th><th>Name</th><th>Last day</th><th>Type</th><th>Remarks</th><th>Result</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td>${r.rowNo}</td><td>${esc(r.empId)}</td><td>${esc(r.name)}</td><td>${r.lastDay?fmt(r.lastDay):''}</td><td>${esc(r.reason)}</td><td>${esc(r.remarks)}</td><td><span class="badge ${badge[r.status]}">${label[r.status]}</span>${r.note?`<br><span style="font-size:9px;color:#888780">${esc(r.note)}</span>`:''}</td></tr>`).join('')}</tbody></table></div>`;
+    document.getElementById('resignCsvCount').textContent=_resignCsvRows.length;
+    document.getElementById('resignCsvConfirmBtn').style.display=_resignCsvRows.length?'':'none';
+  };
+  reader.readAsText(file);
+}
+async function confirmResignCsv(btn){
+  return _btnBusy(btn,_confirmResignCsvInner,'Processing…');
+}
+function _confirmResignCsvInner(){
+  if(!_resignCsvRows.length)return;
+  if(!confirm(`Mark ${_resignCsvRows.length} employee(s) as resigned?`))return;
+  let done=0;
+  _resignCsvRows.forEach(r=>{
+    const emp=ge(r.empId);
+    if(!emp||emp.active===false)return; // changed since preview
+    emp.active=false;
+    emp.resignedDate=iso(today);
+    emp.lastWorkingDay=r.lastDay;
+    emp.resignReason=r.reason;
+    emp.resignRemarks=r.remarks||'';
+    actlog.push({id:aNid++,empId:emp.id,name:emp.name,reqType:'Employee',
+      action:'Employee Resigned',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow(),
+      note:r.reason+(r.remarks?' — '+r.remarks:'')+' | Last day: '+r.lastDay});
+    done++;
+  });
+  save();
+  renderEmpTable();buildDropdowns();renderHome();
+  clearResignCsv();
+  document.getElementById('resignCsvFile').value='';
+  showMsg('resignCsvMsg',`Done: ${done} employee(s) marked as resigned.`,true);
 }
 function importCsv(){
   const file=document.getElementById('csvFile').files[0];

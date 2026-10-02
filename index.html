@@ -995,15 +995,15 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             <div style="background:#F1EFE8;border-radius:8px;padding:12px;margin-bottom:12px;font-size:10px;color:#5F5E5A;line-height:1.8">
               <strong style="color:#1B3A6B">Required CSV columns (row 1 = header):</strong><br>
               <code style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7">Emp ID, Leave Type, Start Date, End Date, Status, Administered By, Filed Date</code><br>
-              Leave Type: <span id="csvLeaveTypeHint" style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7;display:inline-block">VL SL EL ML PL OB AWOL + custom</span> | Status: <code>approved pending cancelled</code> | Dates: <code>YYYY-MM-DD</code><br>
-              End Date: blank or <code>-</code> = open-ended.<br>
+              Leave Type: <span id="csvLeaveTypeHint" style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7;display:inline-block">VL SL EL ML PL OB AWOL + custom</span> | Status: <code>approved pending cancelled</code> (blank = approved) | Dates: <code>YYYY-MM-DD</code> (<code>DD/MM/YYYY</code> also accepted)<br>
+              End Date: blank or <code>-</code> = open-ended. Filed Date: blank = today. Columns can be in any order. Click <strong>Preview</strong> to check every row before anything is saved.<br>
               <button class="btn btn-ghost" style="margin-top:8px;font-size:10px;padding:4px 10px" onclick="downloadLeaveTemplate()">Download template</button>
             </div>
             <div class="ff" style="margin-bottom:10px">
               <label>Select CSV file</label>
-              <input type="file" id="leaveCsvFile" accept=".csv" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
+              <input type="file" id="leaveCsvFile" accept=".csv,text/csv" onchange="clearLeaveCsv()" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
             </div>
-            <div class="form-actions"><button class="btn btn-primary" onclick="importLeaveCsv()">Upload &amp; Import</button><div id="leaveCsvMsg"></div></div>
+            <div class="form-actions"><button class="btn btn-ghost" onclick="previewLeaveCsv()">Preview</button><button class="btn btn-primary write-btn" id="leaveCsvConfirmBtn" style="display:none" onclick="importLeaveCsv(this)">Import (<span id="leaveCsvCount">0</span>)</button><div id="leaveCsvMsg"></div></div>
             <div id="leaveCsvPreview" style="margin-top:10px"></div>
           </div>
         </div>
@@ -1037,14 +1037,15 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <div style="background:#F1EFE8;border-radius:8px;padding:12px;margin-bottom:12px;font-size:10px;color:#5F5E5A;line-height:1.8">
             <strong style="color:#1B3A6B">Required CSV columns (row 1 = header):</strong><br>
             <code style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7">Emp ID, Shift, Start Date, End Date, Status, Administered By, Reason</code><br>
-            Shift: <code>Day Night</code> &nbsp;| Status: <code>approved pending</code> &nbsp;| Dates: <code>YYYY-MM-DD</code><br>
+            Shift: <code>Day Night</code> &nbsp;| Status: <code>approved pending</code> (blank = approved) &nbsp;| Dates: <code>YYYY-MM-DD</code> (<code>DD/MM/YYYY</code> also accepted), End Date required<br>
+            Columns can be in any order. Click <strong>Preview</strong> to check every row before anything is saved.<br>
             <button class="btn btn-ghost" style="margin-top:8px;font-size:10px;padding:4px 10px" onclick="downloadOvrTemplate()">Download template</button>
           </div>
           <div class="ff" style="margin-bottom:10px">
             <label>Select CSV file</label>
-            <input type="file" id="ovrCsvFile" accept=".csv" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
+            <input type="file" id="ovrCsvFile" accept=".csv,text/csv" onchange="clearOvrCsv()" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
           </div>
-          <div class="form-actions"><button class="btn btn-primary write-btn" onclick="importOvrCsv()">Upload &amp; Import</button><div id="ovrCsvMsg"></div></div>
+          <div class="form-actions"><button class="btn btn-ghost" onclick="previewOvrCsv()">Preview</button><button class="btn btn-primary write-btn" id="ovrCsvConfirmBtn" style="display:none" onclick="importOvrCsv(this)">Import (<span id="ovrCsvCount">0</span>)</button><div id="ovrCsvMsg"></div></div>
           <div id="ovrCsvPreview" style="margin-top:10px"></div>
         </div>
         </div>
@@ -6093,68 +6094,164 @@ function downloadLeaveTemplate(){
   const csv='Emp ID,Leave Type,Start Date,End Date,Status,Administered By,Filed Date\nEMP-001,VL,2026-04-01,2026-04-03,approved,Supervisor A,2026-03-28\nEMP-002,SL,2026-04-05,2026-04-05,approved,Supervisor B,2026-04-04\nEMP-003,RTC,2026-04-07,,approved,Supervisor A,2026-04-07\n';
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='leave_upload_template.csv';a.click();
 }
-function importLeaveCsv(){
-  const file=document.getElementById('leaveCsvFile').files[0];
-  if(!file){showMsg('leaveCsvMsg','Please select a CSV file.',false);return;}
-  const reader=new FileReader();
-  reader.onload=function(e){
-    const lines=e.target.result.split(/\r?\n/).filter(l=>l.trim());
-    if(lines.length<2){showMsg('leaveCsvMsg','File is empty or has no data rows.',false);return;}
-    const headers=parseCSVLine(lines[0]).map(h=>h.trim().toLowerCase());
-    const idIdx=headers.findIndex(h=>h.includes('emp'));
-    const typeIdx=headers.findIndex(h=>h.includes('leave type')||h.includes('type'));
-    const startIdx=headers.findIndex(h=>h.includes('start'));
-    const endIdx=headers.findIndex(h=>h.includes('end'));
-    const statusIdx=headers.findIndex(h=>h.includes('status'));
-    const adminIdx=headers.findIndex(h=>h.includes('admin')||h.includes('administered'));
-    const filedIdx=headers.findIndex(h=>h.includes('filed'));
-    if(idIdx<0||typeIdx<0||startIdx<0){showMsg('leaveCsvMsg','Missing required columns (Emp ID, Type, Start).',false);return;}
-    const VALID_TYPES=getLeaveTypes().map(t=>t.code);
-    let added=0,skipped=0,errors=[];
-    const previewRows=[];
-    lines.slice(1).forEach((line,li)=>{
-      const cols=parseCSVLine(line);
-      const empId=(cols[idIdx]||'').trim();
-      const type=(cols[typeIdx]||'').trim().toUpperCase();
-      const start=(cols[startIdx]||'').trim();
-      const rawEnd=endIdx>=0?(cols[endIdx]||'').trim():'';
-      const end=(rawEnd==='-'||rawEnd==='–')?'':rawEnd;  // blank or dash = open-ended
-      const status=(cols[statusIdx]||'approved').trim().toLowerCase()||'approved';
-      const admin=(adminIdx>=0?cols[adminIdx]||'':'').trim();
-      const filedRaw=(filedIdx>=0?cols[filedIdx]||'':'').trim();
-      const filed=filedRaw||iso(today);
-      if(!empId||!type||!start){skipped++;errors.push('Row '+(li+2)+': Missing required field (Emp ID, Type, or Start)');return;}
-      if(!ge(empId)){skipped++;errors.push('Row '+(li+2)+': Emp ID "'+empId+'" not found');return;}
-      if(!VALID_TYPES.includes(type)){skipped++;errors.push('Row '+(li+2)+': Invalid leave type "'+type+'"');return;}
-      if(end&&end<start){skipped++;errors.push('Row '+(li+2)+': End date before start date');return;}
-      // Conflict: block if both leaves are in the same function group (both absent OR both present-type)
-      const _newLt=getLeaveTypes().find(t=>t.code===type);
-      const _newIsAbsent=_newLt?_newLt.isAbsent!==false:true;
-      const conflict=leaves.find(l=>{
-        if(l.empId!==empId||l.status==='cancelled')return false;
-        const lEnd=l.end||MAX_DATE;
-        if(l.start>end||lEnd<start)return false;
-        const _exLt=getLeaveTypes().find(t=>t.code===l.type);
-        const _exIsAbsent=_exLt?_exLt.isAbsent!==false:true;
-        return _newIsAbsent===_exIsAbsent;
-      });
-      if(conflict){skipped++;errors.push('Row '+(li+2)+': '+empId+' already has '+conflict.type+' ('+conflict.start+' – '+(conflict.end||'open')+')');return;}
-      leaves.push({id:lNid++,empId,type,start,end,status,admin,reason:'',remarks:'',contactNo:'',filed,duration:calcDurationStr(start,end),rtw:''});
-      const e=ge(empId);
-      actlog.push({id:aNid++,empId,name:e?e.name:empId,reqType:'Leave',action:'Leave CSV Import',dateReq:iso(today),admin,username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
-      added++;
-      if(previewRows.length<5)previewRows.push({empId,type,start,end,status});
+// Shared row checks for leave and override CSV imports.
+function _csvCheckEmp(r,idRaw){
+  if(!idRaw){r.issues.push({lvl:'error',msg:'Emp ID is missing'});return null;}
+  const f=_csvFindEmp(idRaw);
+  if(f.ambiguous){r.issues.push({lvl:'error',msg:`Emp ID matches several employees: ${f.ambiguous.join(', ')}. Use the exact ID`});return null;}
+  if(!f.emp){r.issues.push({lvl:'error',msg:'Employee not found'+(/^\d+$/.test(idRaw)?'. If IDs have leading zeros or a prefix, Excel may have stripped them':'')});return null;}
+  if(!f.exact)r.issues.push({lvl:'warn',msg:`ID "${idRaw}" matched ${f.emp.id} (case/spacing differs)`});
+  r.empId=f.emp.id;r.empName=f.emp.name;
+  return f.emp;
+}
+// Validates a Start/End pair. openEnded: blank or dash End means no end date.
+function _csvCheckRange(r,startRaw,endRaw,openEnded){
+  const s=_csvDate(startRaw);
+  if(s.err)r.issues.push({lvl:'error',msg:s.err==='missing'?'Start Date is missing':'Start Date '+s.err});
+  else{r.start=s.value;if(s.warn)r.issues.push({lvl:'warn',msg:'Start Date '+s.warn});}
+  if(openEnded&&(!endRaw||/^[-–—]$/.test(endRaw)||/^open(-?ended)?$/i.test(endRaw)))r.end='';
+  else{
+    const e=_csvDate(endRaw);
+    if(e.err)r.issues.push({lvl:'error',msg:e.err==='missing'?'End Date is missing':'End Date '+e.err});
+    else{r.end=e.value;if(e.warn)r.issues.push({lvl:'warn',msg:'End Date '+e.warn});}
+  }
+  if(!r.start||r.end===undefined)return false;
+  if(r.end&&r.end<r.start){r.issues.push({lvl:'error',msg:`End Date (${r.end}) is before Start Date (${r.start})`});return false;}
+  const todayDs=iso(getToday());
+  if(r.end&&_csvDaysBetween(r.start,r.end)>366)r.issues.push({lvl:'warn',msg:`Covers ${_csvDaysBetween(r.start,r.end)+1} days. Check the dates`});
+  if(_csvDaysBetween(todayDs,r.start)>366)r.issues.push({lvl:'warn',msg:'Start Date is more than a year away. Check the year'});
+  return true;
+}
+// Employee start date and resignation vs the record's dates.
+function _csvCheckEmpDates(r,emp){
+  if(emp.anchor&&r.start<emp.anchor)r.issues.push({lvl:'warn',msg:`Starts before the employee's anchor/start date (${emp.anchor})`});
+  if(emp.active===false&&emp.lastWorkingDay){
+    if(r.start>emp.lastWorkingDay)r.issues.push({lvl:'error',msg:`Employee is resigned; starts after their last working day (${emp.lastWorkingDay})`});
+    else if(!r.end||r.end>emp.lastWorkingDay)r.issues.push({lvl:'warn',msg:`Employee is resigned; runs past their last working day (${emp.lastWorkingDay})`});
+  }
+}
+function _csvRangesOverlap(aS,aE,bS,bE){return aS<=(bE||MAX_DATE)&&bS<=(aE||MAX_DATE);}
+function _csvText(r,raw,label,max){
+  let t=_csvSafeText(raw,label,r.issues);
+  if(t.length>max){t=t.slice(0,max);r.issues.push({lvl:'warn',msg:`${label} longer than ${max} characters (cut)`});}
+  return t;
+}
+// In-file overlaps between rows that are otherwise valid: all overlapping rows are rejected.
+function _csvMarkOverlaps(rows,clash,label){
+  const live=rows.filter(r=>r.empId&&r.start&&r.end!==undefined&&!r.issues.some(i=>i.lvl==='error'||i.lvl==='skip'));
+  live.forEach((a,i)=>live.slice(i+1).forEach(b=>{
+    if(a.empId===b.empId&&clash(a,b)&&_csvRangesOverlap(a.start,a.end,b.start,b.end)){
+      a.issues.push({lvl:'error',msg:`Overlaps row ${b.line} (${label} for the same employee)`});
+      b.issues.push({lvl:'error',msg:`Overlaps row ${a.line} (${label} for the same employee)`});
+    }
+  }));
+}
+
+// ─── LEAVE CSV IMPORT ────────────────────────────────────────────────────────
+const LEAVE_CSV_SPEC=[
+  {key:'id',label:'Emp ID',aliases:['Employee ID','Employee No','Emp No','EmpID','ID'],required:true},
+  {key:'type',label:'Leave Type',aliases:['Type','Leave Code','Code','Leave'],required:true},
+  {key:'start',label:'Start Date',aliases:['Start','From','From Date','Date From'],required:true},
+  {key:'end',label:'End Date',aliases:['End','To','To Date','Date To']},
+  {key:'status',label:'Status',aliases:['Leave Status']},
+  {key:'admin',label:'Administered By',aliases:['Admin','Administrator','Approved By','Approver']},
+  {key:'filed',label:'Filed Date',aliases:['Filed','Date Filed','Filing Date']}
+];
+const LEAVE_STATUS_ALIASES={approved:'approved',approve:'approved',pending:'pending',cancelled:'cancelled',canceled:'cancelled',cancel:'cancelled'};
+let _leaveCsvRows=[];
+function _leaveIsAbsent(code){const t=getLeaveTypes().find(x=>x.code===code);return t?t.isAbsent!==false:true;}
+// Same rule as the single Add leave form: overlap within the same group (absent vs present-type) conflicts.
+function _leaveConflict(empId,type,start,end){
+  const abs=_leaveIsAbsent(type);
+  return leaves.find(l=>l.empId===empId&&l.status!=='cancelled'&&_csvRangesOverlap(l.start,l.end===MAX_DATE?'':l.end,start,end)&&_leaveIsAbsent(l.type)===abs);
+}
+function clearLeaveCsv(){
+  _leaveCsvRows=[];
+  document.getElementById('leaveCsvPreview').innerHTML='';
+  document.getElementById('leaveCsvConfirmBtn').style.display='none';
+}
+function previewLeaveCsv(){
+  clearLeaveCsv();
+  _csvReadFile('leaveCsvFile','leaveCsvMsg','leaveCsvPreview',({header,data,fileIssues})=>{
+    const hm=_csvMapHeader(header,LEAVE_CSV_SPEC);
+    if(hm.errors.length)return _csvFatal('leaveCsvPreview','leaveCsvMsg',hm.errors.join(' '));
+    fileIssues.push(...hm.warnings);
+    const codes=getLeaveTypes().map(t=>t.code);
+    const todayDs=iso(getToday());
+    const get=(cells,k)=>hm.map[k]===undefined?'':_csvClean(cells[hm.map[k]]);
+    const rows=data.map(({line,cells})=>{
+      const r={line,issues:[],raw:{}};
+      LEAVE_CSV_SPEC.forEach(s=>r.raw[s.key]=get(cells,s.key));
+      if(cells.length>header.length&&cells.slice(header.length).some(c=>_csvClean(c)))
+        r.issues.push({lvl:'warn',msg:'Row has more values than columns; extras ignored. If a value contains a comma, wrap it in quotes'});
+      const emp=_csvCheckEmp(r,r.raw.id);
+      // Leave type
+      const type=r.raw.type.toUpperCase();
+      if(!type)r.issues.push({lvl:'error',msg:'Leave Type is missing'});
+      else if(!codes.includes(type))r.issues.push({lvl:'error',msg:`Unknown leave type "${r.raw.type}". Use: ${codes.join(', ')}`});
+      else r.type=type;
+      // Dates
+      const rangeOk=_csvCheckRange(r,r.raw.start,r.raw.end,true);
+      if(rangeOk&&emp)_csvCheckEmpDates(r,emp);
+      // Status
+      const st=r.raw.status?LEAVE_STATUS_ALIASES[_csvNorm(r.raw.status)]:'approved';
+      if(!st)r.issues.push({lvl:'error',msg:`Status "${r.raw.status}" must be approved, pending or cancelled`});
+      else r.lvStatus=st;
+      // Filed date
+      if(!r.raw.filed)r.filed=todayDs;
+      else{
+        const f=_csvDate(r.raw.filed);
+        if(f.err)r.issues.push({lvl:'error',msg:'Filed Date '+f.err});
+        else{r.filed=f.value;if(f.warn)r.issues.push({lvl:'warn',msg:'Filed Date '+f.warn});if(f.value>todayDs)r.issues.push({lvl:'warn',msg:'Filed Date is in the future'});}
+      }
+      r.admin=_csvText(r,r.raw.admin,'Administered By',100);
+      // Against existing leave records
+      if(emp&&r.type&&rangeOk&&r.lvStatus&&!r.issues.some(i=>i.lvl==='error')){
+        const dupe=leaves.find(l=>l.empId===r.empId&&l.type===r.type&&l.start===r.start&&l.status!=='cancelled');
+        if(dupe)r.issues.push({lvl:'skip',msg:`Already exists: ${r.type} starting ${r.start}`});
+        else if(r.lvStatus!=='cancelled'){
+          const c=_leaveConflict(r.empId,r.type,r.start,r.end);
+          if(c)r.issues.push({lvl:'error',msg:`Overlaps existing ${c.type} leave (${c.start} to ${c.end&&c.end!==MAX_DATE?c.end:'open-ended'})`});
+        }
+      }
+      if(r.empId&&r.type&&r.start)r.key=[r.empId,r.type,r.start].join('|');
+      return r;
     });
-    save();buildDropdowns();renderLeaveLog();
-    const msg=`Imported ${added} record(s).${skipped>0?' Skipped '+skipped+'.':''}`;
-    showMsg('leaveCsvMsg',msg,added>0);
-    const preview=previewRows.length?`<div style="margin-top:8px;font-size:10px;color:#5F5E5A">Preview (first ${previewRows.length} imported):</div>
-      <table class="tbl" style="margin-top:4px"><thead><tr><th>Emp ID</th><th>Type</th><th>Start</th><th>End</th><th>Status</th></tr></thead>
-      <tbody>${previewRows.map(r=>`<tr><td>${r.empId}</td><td><span class="badge b-${r.type}">${r.type}</span></td><td>${fmt(r.start)}</td><td>${r.end?fmt(r.end):'<span style="color:#B4B2A9">Open-ended</span>'}</td><td><span class="badge b-${r.status}">${r.status}</span></td></tr>`).join('')}</tbody></table>`:'';
-    const errHtml=errors.length?`<div style="margin-top:6px;font-size:9px;color:#A32D2D">${errors.slice(0,5).join('<br>')}</div>`:'';
-    document.getElementById('leaveCsvPreview').innerHTML=preview+errHtml;
-  };
-  reader.readAsText(file);
+    _csvMarkDuplicates(rows,r=>[r.end,r.lvStatus,r.admin,r.filed].join('|'));
+    _csvMarkOverlaps(rows.filter(r=>r.lvStatus!=='cancelled'),(a,b)=>_leaveIsAbsent(a.type)===_leaveIsAbsent(b.type),'leave');
+    const st=_csvRenderPreview('leaveCsvPreview',{rows,fileIssues,okLabel:'will import',onlyIssues:false,cols:[
+      {label:'Emp ID',get:r=>r.empId||r.raw.id},{label:'Name',get:r=>r.empName||''},{label:'Type',get:r=>r.type||r.raw.type},
+      {label:'Start',get:r=>r.start?fmt(r.start):r.raw.start},{label:'End',get:r=>r.end===''?'Open-ended':r.end?fmt(r.end):r.raw.end},
+      {label:'Status',get:r=>r.lvStatus||r.raw.status},{label:'Admin',get:r=>r.admin},{label:'Filed',get:r=>r.filed?fmt(r.filed):r.raw.filed}]});
+    _leaveCsvRows=rows.filter(r=>_csvStatus(r)==='ok'||_csvStatus(r)==='warn');
+    document.getElementById('leaveCsvCount').textContent=_leaveCsvRows.length;
+    document.getElementById('leaveCsvConfirmBtn').style.display=_leaveCsvRows.length?'':'none';
+    showMsg('leaveCsvMsg',_leaveCsvRows.length?'Preview ready. Review, then import.':'No rows can be imported. Fix the issues and preview again.',_leaveCsvRows.length>0&&!st.error);
+  });
+}
+async function importLeaveCsv(btn){
+  return _btnBusy(btn,_importLeaveCsvInner,'Importing…');
+}
+function _importLeaveCsvInner(){
+  if(!_leaveCsvRows.length)return;
+  if(_csvBlockedReadOnly('leaveCsvMsg'))return;
+  const all=_csvState['leaveCsvPreview'].rows,nErr=all.filter(r=>_csvStatus(r)==='error').length,nWarn=all.filter(r=>_csvStatus(r)==='warn').length;
+  if(!confirm(`Import ${_leaveCsvRows.length} leave record(s)?`+(nErr?`\n\n${nErr} row(s) with errors will NOT be imported.`:'')+(nWarn?`\n${nWarn} row(s) have warnings.`:'')))return;
+  let added=0;const changed=[];
+  _leaveCsvRows.forEach(r=>{
+    const e=ge(r.empId);
+    // Re-check against current data in case records changed since preview
+    if(!e||leaves.some(l=>l.empId===r.empId&&l.type===r.type&&l.start===r.start&&l.status!=='cancelled')||(r.lvStatus!=='cancelled'&&_leaveConflict(r.empId,r.type,r.start,r.end))){changed.push(`row ${r.line}`);return;}
+    leaves.push({id:lNid++,empId:r.empId,type:r.type,start:r.start,end:r.end,status:r.lvStatus,admin:r.admin,reason:'',remarks:'',contactNo:'',filed:r.filed,duration:calcDurationStr(r.start,r.end),rtw:''});
+    actlog.push({id:aNid++,empId:r.empId,name:e.name,reqType:'Leave',action:'Leave CSV Import',dateReq:iso(today),admin:r.admin,username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow(),
+      note:`Type: ${r.type} | From: ${r.start}${r.end?' → '+r.end:' (open-ended)'} | Status: ${r.lvStatus}`});
+    added++;
+  });
+  if(added)save();
+  buildDropdowns();renderLeaveLog();renderPendingRequests();
+  clearLeaveCsv();
+  document.getElementById('leaveCsvFile').value='';
+  showMsg('leaveCsvMsg',`Done: ${added} leave record(s) imported.`+(changed.length?` ${changed.length} skipped because records changed since preview (${changed.slice(0,5).join(', ')}).`:''),added>0);
 }
 async function addLeave(btn){
   return _btnBusy(btn,_addLeaveInner,'Saving…');
@@ -6221,51 +6318,97 @@ function downloadOvrTemplate(){
   const csv='Emp ID,Shift,Start Date,End Date,Status,Administered By,Reason\nEMP-001,Day,2026-04-01,2026-06-30,approved,Supervisor A,Project assignment\nEMP-002,Night,2026-04-01,2026-04-30,approved,HR,Coverage\n';
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='shift_override_template.csv';a.click();
 }
-function importOvrCsv(){
-  const file=document.getElementById('ovrCsvFile').files[0];
-  if(!file){showMsg('ovrCsvMsg','Please select a CSV file.',false);return;}
-  const reader=new FileReader();
-  reader.onload=function(e){
-    const lines=e.target.result.split(/\r?\n/).filter(l=>l.trim());
-    if(lines.length<2){showMsg('ovrCsvMsg','File is empty or has no data rows.',false);return;}
-    const headers=parseCSVLine(lines[0]).map(h=>h.trim().toLowerCase());
-    const idIdx=headers.findIndex(h=>h.includes('emp'));
-    const shiftIdx=headers.findIndex(h=>h.includes('shift'));
-    const startIdx=headers.findIndex(h=>h.includes('start'));
-    const endIdx=headers.findIndex(h=>h.includes('end'));
-    const statusIdx=headers.findIndex(h=>h.includes('status'));
-    const adminIdx=headers.findIndex(h=>h.includes('admin')||h.includes('administered'));
-    const reasonIdx=headers.findIndex(h=>h.includes('reason'));
-    if(idIdx<0||shiftIdx<0||startIdx<0||endIdx<0){showMsg('ovrCsvMsg','Missing required columns.',false);return;}
-    let added=0,skipped=0,errors=[];const previewRows=[];
-    lines.slice(1).forEach((line,li)=>{
-      const cols=parseCSVLine(line);
-      const empId=(cols[idIdx]||'').trim();
-      const shift=(cols[shiftIdx]||'').trim();
-      const start=(cols[startIdx]||'').trim();
-      const end=(cols[endIdx]||'').trim();
-      const status=(cols[statusIdx]||'approved').trim().toLowerCase()||'approved';
-      const admin=(adminIdx>=0?cols[adminIdx]||'':'').trim();
-      const reason=(reasonIdx>=0?cols[reasonIdx]||'':'').trim();
-      if(!empId||!shift||!start||!end){skipped++;errors.push('Row '+(li+2)+': Missing required field');return;}
-      if(!ge(empId)){skipped++;errors.push('Row '+(li+2)+': Emp ID "'+empId+'" not found');return;}
-      if(!['Day','Night'].includes(shift)){skipped++;errors.push('Row '+(li+2)+': Invalid shift "'+shift+'" (must be Day or Night)');return;}
-      if(end<start){skipped++;errors.push('Row '+(li+2)+': End date before start date');return;}
-      overrides.push({id:oNid++,empId,shift,start,end,status,admin,reason});
-      const emp=ge(empId);
-      actlog.push({id:aNid++,empId,name:emp?emp.name:empId,reqType:'Special Schedule',action:'Special Schedule CSV Import',dateReq:iso(today),admin,username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
-      added++;
-      if(previewRows.length<5)previewRows.push({empId,shift,start,end,status});
+// ─── SHIFT OVERRIDE CSV IMPORT ───────────────────────────────────────────────
+const OVR_CSV_SPEC=[
+  {key:'id',label:'Emp ID',aliases:['Employee ID','Employee No','Emp No','EmpID','ID'],required:true},
+  {key:'shift',label:'Shift',aliases:['Force Shift','Force Shift To','Shift To','Override Shift'],required:true},
+  {key:'start',label:'Start Date',aliases:['Start','From','From Date','Date From'],required:true},
+  {key:'end',label:'End Date',aliases:['End','To','To Date','Date To'],required:true},
+  {key:'status',label:'Status',aliases:[]},
+  {key:'admin',label:'Administered By',aliases:['Admin','Administrator','Approved By','Approver']},
+  {key:'reason',label:'Reason',aliases:['Remarks','Notes']}
+];
+const OVR_SHIFT_ALIASES={day:'Day',dayshift:'Day',d:'Day',ds:'Day',night:'Night',nightshift:'Night',n:'Night',ns:'Night'};
+let _ovrCsvRows=[];
+function _ovrConflict(empId,start,end){
+  return overrides.find(o=>o.empId===empId&&o.status!=='cancelled'&&_csvRangesOverlap(o.start,o.end,start,end));
+}
+function clearOvrCsv(){
+  _ovrCsvRows=[];
+  document.getElementById('ovrCsvPreview').innerHTML='';
+  document.getElementById('ovrCsvConfirmBtn').style.display='none';
+}
+function previewOvrCsv(){
+  clearOvrCsv();
+  _csvReadFile('ovrCsvFile','ovrCsvMsg','ovrCsvPreview',({header,data,fileIssues})=>{
+    const hm=_csvMapHeader(header,OVR_CSV_SPEC);
+    if(hm.errors.length)return _csvFatal('ovrCsvPreview','ovrCsvMsg',hm.errors.join(' '));
+    fileIssues.push(...hm.warnings);
+    const get=(cells,k)=>hm.map[k]===undefined?'':_csvClean(cells[hm.map[k]]);
+    const rows=data.map(({line,cells})=>{
+      const r={line,issues:[],raw:{}};
+      OVR_CSV_SPEC.forEach(s=>r.raw[s.key]=get(cells,s.key));
+      if(cells.length>header.length&&cells.slice(header.length).some(c=>_csvClean(c)))
+        r.issues.push({lvl:'warn',msg:'Row has more values than columns; extras ignored. If a value contains a comma, wrap it in quotes'});
+      const emp=_csvCheckEmp(r,r.raw.id);
+      // Shift
+      const shift=OVR_SHIFT_ALIASES[_csvNorm(r.raw.shift)];
+      if(!r.raw.shift)r.issues.push({lvl:'error',msg:'Shift is missing'});
+      else if(!shift)r.issues.push({lvl:'error',msg:`Shift "${r.raw.shift}" must be Day or Night`});
+      else{r.shift=shift;if(emp&&emp.type==='trainee'&&shift==='Night')r.issues.push({lvl:'warn',msg:'Employee is on the trainee (Day only) pattern; this forces Night shift'});}
+      // Dates (End required for overrides)
+      const rangeOk=_csvCheckRange(r,r.raw.start,r.raw.end,false);
+      if(rangeOk&&emp)_csvCheckEmpDates(r,emp);
+      // Status
+      const st=_csvNorm(r.raw.status);
+      if(!st||st==='approved'||st==='approve')r.ovStatus='approved';
+      else if(st==='pending')r.ovStatus='pending';
+      else r.issues.push({lvl:'error',msg:`Status "${r.raw.status}" must be approved or pending`});
+      r.admin=_csvText(r,r.raw.admin,'Administered By',100);
+      r.reason=_csvText(r,r.raw.reason,'Reason',200);
+      // Against existing overrides
+      if(emp&&r.shift&&rangeOk&&!r.issues.some(i=>i.lvl==='error')){
+        const c=_ovrConflict(r.empId,r.start,r.end);
+        if(c&&c.shift===r.shift&&c.start===r.start&&c.end===r.end)r.issues.push({lvl:'skip',msg:'Same override already exists'});
+        else if(c)r.issues.push({lvl:'error',msg:`Overlaps existing ${c.shift} override (${c.start} to ${c.end})`});
+      }
+      if(r.empId&&r.start&&r.end)r.key=[r.empId,r.start,r.end].join('|');
+      return r;
     });
-    save();renderOvrTable();
-    showMsg('ovrCsvMsg',`Imported ${added} override(s).${skipped>0?' Skipped '+skipped+'.':''}`,added>0);
-    const preview=previewRows.length?`<div style="margin-top:8px;font-size:10px;color:#5F5E5A">Preview (first ${previewRows.length} imported):</div>
-      <table class="tbl" style="margin-top:4px"><thead><tr><th>Emp ID</th><th>Shift</th><th>Start</th><th>End</th><th>Status</th></tr></thead>
-      <tbody>${previewRows.map(r=>`<tr><td>${r.empId}</td><td>${r.shift}</td><td>${fmt(r.start)}</td><td>${fmt(r.end)}</td><td><span class="badge b-${r.status}">${r.status}</span></td></tr>`).join('')}</tbody></table>`:'';
-    const errHtml=errors.length?`<div style="margin-top:6px;font-size:9px;color:#A32D2D">${errors.slice(0,5).join('<br>')}</div>`:'';
-    document.getElementById('ovrCsvPreview').innerHTML=preview+errHtml;
-  };
-  reader.readAsText(file);
+    _csvMarkDuplicates(rows,r=>[r.shift,r.ovStatus,r.admin,r.reason].join('|'));
+    _csvMarkOverlaps(rows,()=>true,'override');
+    const st=_csvRenderPreview('ovrCsvPreview',{rows,fileIssues,okLabel:'will import',onlyIssues:false,cols:[
+      {label:'Emp ID',get:r=>r.empId||r.raw.id},{label:'Name',get:r=>r.empName||''},{label:'Shift',get:r=>r.shift||r.raw.shift},
+      {label:'Start',get:r=>r.start?fmt(r.start):r.raw.start},{label:'End',get:r=>r.end?fmt(r.end):r.raw.end},
+      {label:'Status',get:r=>r.ovStatus||r.raw.status},{label:'Admin',get:r=>r.admin},{label:'Reason',get:r=>r.reason}]});
+    _ovrCsvRows=rows.filter(r=>_csvStatus(r)==='ok'||_csvStatus(r)==='warn');
+    document.getElementById('ovrCsvCount').textContent=_ovrCsvRows.length;
+    document.getElementById('ovrCsvConfirmBtn').style.display=_ovrCsvRows.length?'':'none';
+    showMsg('ovrCsvMsg',_ovrCsvRows.length?'Preview ready. Review, then import.':'No rows can be imported. Fix the issues and preview again.',_ovrCsvRows.length>0&&!st.error);
+  });
+}
+async function importOvrCsv(btn){
+  return _btnBusy(btn,_importOvrCsvInner,'Importing…');
+}
+function _importOvrCsvInner(){
+  if(!_ovrCsvRows.length)return;
+  if(_csvBlockedReadOnly('ovrCsvMsg'))return;
+  const all=_csvState['ovrCsvPreview'].rows,nErr=all.filter(r=>_csvStatus(r)==='error').length,nWarn=all.filter(r=>_csvStatus(r)==='warn').length;
+  if(!confirm(`Import ${_ovrCsvRows.length} shift override(s)?`+(nErr?`\n\n${nErr} row(s) with errors will NOT be imported.`:'')+(nWarn?`\n${nWarn} row(s) have warnings.`:'')))return;
+  let added=0;const changed=[];
+  _ovrCsvRows.forEach(r=>{
+    const e=ge(r.empId);
+    if(!e||_ovrConflict(r.empId,r.start,r.end)){changed.push(`row ${r.line}`);return;} // changed since preview
+    overrides.push({id:oNid++,empId:r.empId,shift:r.shift,start:r.start,end:r.end,status:r.ovStatus,admin:r.admin,reason:r.reason});
+    actlog.push({id:aNid++,empId:r.empId,name:e.name,reqType:'Special Schedule',action:'Special Schedule CSV Import',dateReq:iso(today),admin:r.admin,username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow(),
+      note:`Shift: ${r.shift} | ${r.start} → ${r.end} | Status: ${r.ovStatus}`});
+    added++;
+  });
+  if(added){_bumpOverrideGen();save();}
+  renderOvrTable();
+  clearOvrCsv();
+  document.getElementById('ovrCsvFile').value='';
+  showMsg('ovrCsvMsg',`Done: ${added} override(s) imported.`+(changed.length?` ${changed.length} skipped because records changed since preview (${changed.slice(0,5).join(', ')}).`:''),added>0);
 }
 function addOverride(){
   const empId=(v('oEmpId')||'').trim(),shift=v('oShift'),start=v('oStart'),end=v('oEnd'),status=v('oStatus'),admin=(v('oAdmin')||'').trim()||((()=>{const p=getAdminProfile();return p.nickname||p.fullname||currentUser||'Admin';})()),reason=v('oReason');
@@ -7107,11 +7250,6 @@ function deleteSelectedEmp(){
 function downloadCsvTemplate(){
   const csv='Emp ID,Full Name,Unit Type,Type,First Shift,Anchor Date,Base Rest Day,Role\nEMP-021,Juan Santos,Dozer,rotating,Day,2022-01-10,1,regular\nEMP-022,Maria Cruz,DT,trainee,Day,2023-03-15,3,trainee\n';
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='employee_template.csv';a.click();
-}
-function parseCSVLine(line){
-  const res=[];let cur='';let inQ=false;
-  for(const c of line){if(c==='"'){inQ=!inQ;}else if(c===','&&!inQ){res.push(cur);cur='';}else{cur+=c;}}
-  res.push(cur);return res;
 }
 // ─── CSV IMPORT VALIDATION (shared) ──────────────────────────────────────────
 // Every import is two-step: preview validates the whole file and every row,

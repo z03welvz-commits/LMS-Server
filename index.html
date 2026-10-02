@@ -1152,20 +1152,26 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <div class="form-head">CSV bulk import</div>
           <div class="form-body">
             <div style="background:#F1EFE8;border-radius:8px;padding:12px;margin-bottom:12px;font-size:10px;color:#5F5E5A;line-height:1.8">
-              <strong style="color:#1B3A6B">Required CSV columns (row 1 = header):</strong><br>
+              <strong style="color:#1B3A6B">Required CSV columns (row 1 = header, any order):</strong><br>
               <code style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7">Emp ID, Full Name, Unit Type, Type, First Shift, Anchor Date, Base Rest Day, Role</code><br>
-              Type: <code>rotating</code> or <code>trainee</code> | First Shift: <code>Day</code> or <code>Night</code> | Anchor Date: <code>YYYY-MM-DD</code> | Base Rest: <code>0</code>=Sun .. <code>6</code>=Sat | Role: <code>regular</code> <code>reliever</code> <code>trainee</code> (optional, defaults to regular)<br>
+              Type: <code>rotating</code> or <code>trainee</code> | First Shift: <code>Day</code> or <code>Night</code> | Anchor Date: <code>YYYY-MM-DD</code> | Base Rest: <code>0</code>=Sun .. <code>6</code>=Sat (or <code>Sun</code>..<code>Sat</code>) | Role: <code>regular</code> <code>reliever</code> <code>trainee</code> (optional, defaults to regular)<br>
+              Save from Excel as <strong>CSV UTF-8 (Comma delimited)</strong>. Max 5,000 rows / 2 MB. Click <strong>Preview</strong> to check every row before anything is saved.<br>
               <button class="btn btn-ghost" style="margin-top:8px;font-size:10px;padding:4px 10px" onclick="downloadCsvTemplate()">Download template</button>
             </div>
             <div class="ff" style="margin-bottom:10px">
               <label>Select CSV file</label>
-              <input type="file" id="csvFile" accept=".csv" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
+              <input type="file" id="csvFile" accept=".csv,text/csv" onchange="clearEmpCsv()" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
             </div>
             <div style="display:flex;gap:12px;margin-bottom:10px;font-size:10px;color:#5F5E5A">
-              <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="csvSkipDupe" checked style="accent-color:#1B3A6B"> Skip duplicate IDs</label>
-              <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="csvOverwrite" style="accent-color:#1B3A6B"> Overwrite if ID exists</label>
+              <span style="align-self:center">If the Emp ID already exists:</span>
+              <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csvDupeMode" id="csvSkipDupe" value="skip" checked onchange="clearEmpCsv()" style="accent-color:#1B3A6B"> Skip the row</label>
+              <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csvDupeMode" id="csvOverwrite" value="overwrite" onchange="clearEmpCsv()" style="accent-color:#1B3A6B"> Overwrite the employee</label>
             </div>
-            <div class="form-actions"><button class="btn btn-primary write-btn" onclick="importCsv()">Import CSV</button><div id="csvMsg"></div></div>
+            <div class="form-actions">
+              <button class="btn btn-ghost" onclick="previewEmpCsv(this)">Preview</button>
+              <button class="btn btn-primary write-btn" id="empCsvConfirmBtn" style="display:none" onclick="importCsv(this)">Import (<span id="empCsvCount">0</span>)</button>
+              <div id="csvMsg"></div>
+            </div>
             <div id="csvPreview" style="margin-top:10px"></div>
           </div>
         </div>
@@ -1176,18 +1182,18 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <div class="form-head">Bulk resign via CSV</div>
           <div class="form-body">
             <div style="background:#F1EFE8;border-radius:8px;padding:12px;margin-bottom:12px;font-size:10px;color:#5F5E5A;line-height:1.8">
-              <strong style="color:#1B3A6B">Required CSV columns (row 1 = header):</strong><br>
-              <code style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7">Emp ID, Last Working Day, Separation Type, Remarks</code><br>
-              Last Working Day: <code>YYYY-MM-DD</code> | Separation Type: <code>Resigned</code> <code>Terminated</code> <code>Retired</code> <code>AWOL</code> <code>End of Contract</code> <code>Other</code> (optional, defaults to Resigned) | Remarks: optional<br>
-              Employees stay on schedules until their last working day passes. Records are kept and can be reinstated anytime.<br>
+              <strong style="color:#1B3A6B">CSV columns (row 1 = header, any order):</strong><br>
+              <code style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7">Emp ID, Full Name, Last Working Day, Separation Type, Remarks</code><br>
+              Required: <code>Emp ID</code>, <code>Last Working Day</code> (<code>YYYY-MM-DD</code>) | Separation Type: <code>Resigned</code> <code>Terminated</code> <code>Retired</code> <code>AWOL</code> <code>End of Contract</code> <code>Other</code> (blank = Resigned) | Full Name: optional, checked against the system to catch wrong IDs | Remarks: optional<br>
+              Employees stay on schedules until their last working day passes. Records are kept and can be reinstated anytime. Click <strong>Preview</strong> to check every row before anything is saved.<br>
               <button class="btn btn-ghost" style="margin-top:8px;font-size:10px;padding:4px 10px" onclick="downloadResignTemplate()">Download template</button>
             </div>
             <div class="ff" style="margin-bottom:10px">
               <label>Select CSV file</label>
-              <input type="file" id="resignCsvFile" accept=".csv" onchange="clearResignCsv()" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
+              <input type="file" id="resignCsvFile" accept=".csv,text/csv" onchange="clearResignCsv()" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
             </div>
             <div class="form-actions">
-              <button class="btn btn-ghost" onclick="previewResignCsv()">Preview</button>
+              <button class="btn btn-ghost" onclick="previewResignCsv(this)">Preview</button>
               <button class="btn write-btn" id="resignCsvConfirmBtn" style="background:#A32D2D;color:#fff;display:none" onclick="confirmResignCsv(this)">Confirm resignation (<span id="resignCsvCount">0</span>)</button>
               <div id="resignCsvMsg"></div>
             </div>
@@ -7107,13 +7113,226 @@ function parseCSVLine(line){
   for(const c of line){if(c==='"'){inQ=!inQ;}else if(c===','&&!inQ){res.push(cur);cur='';}else{cur+=c;}}
   res.push(cur);return res;
 }
+// ─── CSV IMPORT VALIDATION (shared) ──────────────────────────────────────────
+// Every import is two-step: preview validates the whole file and every row,
+// confirm applies only rows without errors. Nothing is written during preview.
+// Row issue levels: error (row not applied), skip (nothing to do), warn (applied, check it).
+const CSV_MAX_BYTES=2*1024*1024,CSV_MAX_ROWS=5000;
+const _csvState={};   // preview element id -> {cols,rows,onlyIssues}
+
+function _csvClean(s){
+  return String(s==null?'':s).replace(/[\u0000-\u001F\u007F ​-‍﻿]/g,' ').replace(/\s+/g,' ').trim();
+}
+function _csvNorm(s){return _csvClean(s).toLowerCase().replace(/[^a-z0-9]/g,'');}
+function _csvPad(n){return String(n).padStart(2,'0');}
+
+// Strips a leading = + - @ so the value can't run as a formula when the data is
+// later exported and opened in Excel.
+function _csvSafeText(s,label,issues){
+  if(/^[=+\-@]/.test(s)){
+    s=s.replace(/^[=+\-@\s]+/,'');
+    issues.push({lvl:'warn',msg:`${label} started with = + - or @ (removed)`});
+  }
+  return s;
+}
+
+// RFC 4180 parser: quoted fields, "" escapes, commas/newlines inside quotes, CRLF/CR/LF.
+function _csvParseText(text,delim){
+  const rows=[];let row=[],cur='',inQ=false,line=1,rowLine=1,qLine=0;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){if(text[i+1]==='"'){cur+='"';i++;}else inQ=false;}
+      else{if(c==='\n')line++;cur+=c;}
+      continue;
+    }
+    if(c==='"'&&cur.trim()===''){inQ=true;cur='';qLine=line;continue;}
+    if(c===delim){row.push(cur);cur='';continue;}
+    if(c==='\r'||c==='\n'){
+      if(c==='\r'&&text[i+1]==='\n')i++;
+      row.push(cur);rows.push({line:rowLine,cells:row});
+      row=[];cur='';line++;rowLine=line;continue;
+    }
+    cur+=c;
+  }
+  if(inQ)return{error:`Unclosed quote (") starting on line ${qLine}. Every quoted value must end with a closing quote.`};
+  if(cur!==''||row.length){row.push(cur);rows.push({line:rowLine,cells:row});}
+  return{rows};
+}
+
+function _csvDetectDelim(firstLine){
+  const cnt=d=>firstLine.split(d).length-1;
+  const c=cnt(','),sc=cnt(';'),t=cnt('\t');
+  if(sc>c&&sc>=t)return';';
+  if(t>c&&t>sc)return'\t';
+  return',';
+}
+
+// Reads and checks the file itself; calls cb({header,data,fileIssues}) or reports a fatal error.
+function _csvFatal(previewId,msgId,m){
+  showMsg(msgId,'Cannot import. See details below.',false);
+  document.getElementById(previewId).innerHTML=`<div style="background:#FCEBEB;color:#791F1F;border:0.5px solid #F5C0C0;border-radius:6px;padding:8px 10px;font-size:10px"><strong>File not imported:</strong> ${esc(m)}</div>`;
+}
+function _csvReadFile(inputId,msgId,previewId,cb){
+  const fail=m=>_csvFatal(previewId,msgId,m);
+  const input=document.getElementById(inputId);
+  const file=input&&input.files&&input.files[0];
+  if(!file)return fail('Select a CSV file first.');
+  const name=file.name.toLowerCase();
+  if(/\.(xlsx|xlsm|xlsb|xls|ods|numbers)$/.test(name))return fail('This is a spreadsheet file, not a CSV. In Excel use File > Save As > "CSV UTF-8 (Comma delimited)" and upload that file.');
+  if(!/\.(csv|txt)$/.test(name))return fail('Unsupported file type. Upload a .csv file.');
+  if(file.size===0)return fail('The file is empty.');
+  if(file.size>CSV_MAX_BYTES)return fail(`File is too large (${(file.size/1024/1024).toFixed(1)} MB). Max is 2 MB; split it into smaller files.`);
+  const reader=new FileReader();
+  reader.onerror=()=>fail('Could not read the file. If it is open in Excel, close it and try again.');
+  reader.onload=e=>{
+    let text=String(e.target.result||'');
+    const fileIssues=[];
+    if(text.startsWith('PK'))return fail('This file is an Excel workbook renamed to .csv. Open it in Excel and use Save As > "CSV UTF-8 (Comma delimited)".');
+    if(text.includes('\u0000'))return fail('The file is not plain text (binary or UTF-16). Save it as "CSV UTF-8 (Comma delimited)".');
+    if(text.includes('�'))fileIssues.push('Some characters could not be read (e.g. ñ, é). Save the file as "CSV UTF-8" so names are not garbled.');
+    text=text.replace(/^﻿/,'');
+    const firstLine=text.split(/\r\n|\r|\n/,1)[0]||'';
+    const delim=_csvDetectDelim(firstLine);
+    if(delim!==',')fileIssues.push(`File uses ${delim===';'?'semicolons':'tabs'} instead of commas; read accordingly.`);
+    const parsed=_csvParseText(text,delim);
+    if(parsed.error)return fail(parsed.error);
+    const rows=parsed.rows.filter(r=>r.cells.some(c=>_csvClean(c)!==''));
+    const blank=parsed.rows.length-rows.length;
+    if(!rows.length)return fail('The file has no content.');
+    if(rows.length<2)return fail('Only a header row was found; there are no data rows.');
+    if(rows.length-1>CSV_MAX_ROWS)return fail(`Too many rows (${rows.length-1}). Max is ${CSV_MAX_ROWS} per file; split it into smaller files.`);
+    if(blank>0)fileIssues.push(`${blank} blank line(s) ignored.`);
+    cb({header:rows[0].cells,data:rows.slice(1),fileIssues});
+  };
+  reader.readAsText(file,'UTF-8');
+}
+
+// Maps header names to column indexes (order-independent). spec: [{key,label,aliases,required}]
+function _csvMapHeader(header,spec){
+  const map={},errors=[],warnings=[];
+  header.forEach((h,i)=>{
+    const n=_csvNorm(h);
+    if(!n)return;
+    const f=spec.find(s=>[s.label,...(s.aliases||[])].map(_csvNorm).includes(n));
+    if(!f){warnings.push(`Unknown column "${_csvClean(h)}" ignored.`);return;}
+    if(map[f.key]!==undefined){errors.push(`Column "${f.label}" appears more than once.`);return;}
+    map[f.key]=i;
+  });
+  const expected=spec.map(s=>s.label).join(', ');
+  if(!Object.keys(map).length)return{map,errors:[`Header row not recognised. Row 1 must contain the column names: ${expected}.`],warnings:[]};
+  spec.filter(s=>s.required&&map[s.key]===undefined).forEach(s=>errors.push(`Missing required column "${s.label}".`));
+  return{map,errors,warnings};
+}
+
+// Accepts YYYY-MM-DD (also / or .), DD/MM/YYYY (app convention), optional time part.
+// Returns {value} or {err}; may include {warn} for ambiguous day/month.
+function _csvDate(raw){
+  raw=_csvClean(raw).replace(/[ T]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?\s*(am|pm|z)?$/i,'');
+  if(!raw)return{err:'missing'};
+  let y,m,d,mt,warn='';
+  if((mt=raw.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/))){y=+mt[1];m=+mt[2];d=+mt[3];}
+  else if((mt=raw.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/))){
+    d=+mt[1];m=+mt[2];y=+mt[3];
+    if(m>12&&d<=12)return{err:`"${raw}" looks like month/day/year. Use YYYY-MM-DD`};
+    if(d<=12&&m<=12&&d!==m)warn=`"${raw}" read as day/month/year (${y}-${_csvPad(m)}-${_csvPad(d)}). Use YYYY-MM-DD to avoid mix-ups`;
+  }
+  else if(/^\d{1,2}[-\/.]\d{1,2}[-\/.]\d{2}$/.test(raw))return{err:`"${raw}" has a 2-digit year. Use YYYY-MM-DD`};
+  else if(/^\d{4,6}(\.\d+)?$/.test(raw))return{err:`"${raw}" is an Excel date number. Format the column as a date (YYYY-MM-DD) before saving`};
+  else return{err:`"${raw}" is not a valid date. Use YYYY-MM-DD`};
+  if(y<1950||y>2100)return{err:`"${raw}" has an out-of-range year`};
+  if(m<1||m>12)return{err:`"${raw}" has an invalid month`};
+  if(d<1||d>new Date(y,m,0).getDate())return{err:`"${raw}" does not exist on the calendar`};
+  return{value:`${y}-${_csvPad(m)}-${_csvPad(d)}`,warn};
+}
+
+function _csvDaysBetween(a,b){return Math.round((pd(b)-pd(a))/86400000);}
+
+// Looks up an employee by ID: exact, then ignoring case/spaces.
+function _csvFindEmp(id){
+  const exact=employees.find(e=>e.id===id);
+  if(exact)return{emp:exact,exact:true};
+  const k=_csvNorm(id);
+  const loose=employees.filter(e=>_csvNorm(e.id)===k);
+  if(loose.length===1)return{emp:loose[0],exact:false};
+  if(loose.length>1)return{ambiguous:loose.map(e=>e.id)};
+  return{};
+}
+
+function _csvStatus(r){
+  const lv=r.issues.map(i=>i.lvl);
+  return lv.includes('error')?'error':lv.includes('skip')?'skip':lv.includes('warn')?'warn':'ok';
+}
+
+// Rows sharing an ID: identical -> later ones skipped; conflicting -> all rejected.
+function _csvMarkDuplicates(rows,sigOf){
+  const groups={};
+  rows.forEach(r=>{if(r.key)(groups[r.key]=groups[r.key]||[]).push(r);});
+  Object.values(groups).filter(g=>g.length>1).forEach(g=>{
+    const lines=g.map(r=>r.line).join(', ');
+    const same=g.every(r=>sigOf(r)===sigOf(g[0]));
+    if(same)g.slice(1).forEach(r=>r.issues.push({lvl:'skip',msg:`Duplicate of row ${g[0].line}`}));
+    else g.forEach(r=>r.issues.push({lvl:'error',msg:`Same Emp ID appears with different values on rows ${lines}. Keep only the correct row`}));
+  });
+}
+
+function _csvRenderPreview(elId,state){
+  _csvState[elId]=state;
+  const {rows,cols,fileIssues,okLabel}=state;
+  const st={ok:0,warn:0,skip:0,error:0};rows.forEach(r=>st[r.status=_csvStatus(r)]++);
+  const badge={ok:['b-approved',okLabel],warn:['b-pending',okLabel+' (check)'],skip:['',`skipped`],error:['b-cancelled','error']};
+  const shown=state.onlyIssues?rows.filter(r=>r.status!=='ok'):rows;
+  const notes=fileIssues.length?`<div style="background:#FAEEDA;color:#633806;border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:10px">${fileIssues.map(esc).join('<br>')}</div>`:'';
+  document.getElementById(elId).innerHTML=`${notes}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:10px;color:#5F5E5A;margin-bottom:6px">
+    <strong>${rows.length} rows:</strong>
+    <span class="badge b-approved">${st.ok+st.warn} ${esc(okLabel)}</span>
+    ${st.warn?`<span class="badge b-pending">${st.warn} with warnings</span>`:''}
+    ${st.skip?`<span class="badge" style="background:#F1EFE8;color:#5F5E5A">${st.skip} skipped</span>`:''}
+    ${st.error?`<span class="badge b-cancelled">${st.error} errors (not applied)</span>`:''}
+    <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" ${state.onlyIssues?'checked':''} onchange="_csvState['${elId}'].onlyIssues=this.checked;_csvRenderPreview('${elId}',_csvState['${elId}'])"> Show only rows with issues</label>
+    ${st.warn+st.skip+st.error?`<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="_csvDownloadReport('${elId}')">Download issue report</button>`:''}
+  </div>
+  <div style="max-height:320px;overflow-y:auto;border:0.5px solid #D3D1C7;border-radius:8px">
+  <table class="tbl" style="font-size:10px"><thead><tr><th>Row</th>${cols.map(c=>`<th>${esc(c.label)}</th>`).join('')}<th>Result</th></tr></thead>
+  <tbody>${shown.length?shown.map(r=>{const[b,l]=badge[r.status];return`<tr><td>${r.line}</td>${cols.map(c=>`<td>${esc(c.get(r)||'')}</td>`).join('')}<td><span class="badge ${b}" ${b?'':'style="background:#F1EFE8;color:#5F5E5A"'}>${l}</span>${r.issues.map(i=>`<br><span style="font-size:9px;color:${i.lvl==='error'?'#A32D2D':i.lvl==='warn'?'#BA7517':'#888780'}">${esc(i.msg)}</span>`).join('')}</td></tr>`;}).join(''):`<tr><td colspan="${cols.length+2}" style="text-align:center;color:#888780">No rows with issues.</td></tr>`}</tbody></table></div>`;
+  return st;
+}
+
+function _csvDownloadReport(elId){
+  const s=_csvState[elId];if(!s)return;
+  const q=v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`;
+  let csv=['Row',...s.cols.map(c=>c.label),'Result','Issues'].map(q).join(',')+'\n';
+  s.rows.filter(r=>r.status!=='ok').forEach(r=>{
+    csv+=[r.line,...s.cols.map(c=>c.get(r)),r.status,r.issues.map(i=>i.msg).join('; ')].map(q).join(',')+'\n';
+  });
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv'}));a.download=`csv_issues_${iso(today)}.csv`;a.click();
+}
+
+function _csvBlockedReadOnly(msgId){
+  if(!isReadOnly())return false;
+  showMsg(msgId,'Read-only: another user holds the edit lock. Nothing was imported.',false);
+  return true;
+}
+
 // ─── BULK RESIGN VIA CSV ─────────────────────────────────────────────────────
-// Two-step: preview validates every row, confirm applies only the valid ones.
 // Applies the same fields as the single Resign modal (_confirmResignInner).
 const RESIGN_TYPES=['Resigned','Terminated','Retired','AWOL','End of Contract','Other'];
+const RESIGN_TYPE_ALIASES={resign:'Resigned',resignation:'Resigned',voluntary:'Resigned',resignedvoluntary:'Resigned',
+  terminate:'Terminated',termination:'Terminated',dismissed:'Terminated',retire:'Retired',retirement:'Retired',
+  absentwithoutleave:'AWOL',eoc:'End of Contract',endofcontract:'End of Contract',contractend:'End of Contract',endcontract:'End of Contract',others:'Other'};
+const RESIGN_CSV_SPEC=[
+  {key:'id',label:'Emp ID',aliases:['Employee ID','Employee No','Emp No','EmpID','ID'],required:true},
+  {key:'name',label:'Full Name',aliases:['Name','Employee Name']},
+  {key:'last',label:'Last Working Day',aliases:['Last Day','Last Working Date','LWD','Separation Date','Effective Date']},
+  {key:'type',label:'Separation Type',aliases:['Type','Separation','Reason']},
+  {key:'remarks',label:'Remarks',aliases:['Remark','Notes','Note','Comments','Comment']}
+];
+RESIGN_CSV_SPEC[2].required=true;
+const RESIGN_REMARKS_MAX=200;
 let _resignCsvRows=[];
 function downloadResignTemplate(){
-  const csv='Emp ID,Last Working Day,Separation Type,Remarks\nEMP-014,2026-10-15,Resigned,Personal reasons\nEMP-022,2026-10-31,End of Contract,\n';
+  const csv='Emp ID,Full Name,Last Working Day,Separation Type,Remarks\nEMP-014,Juan Santos,2026-10-15,Resigned,Personal reasons\nEMP-022,Maria Cruz,2026-10-31,End of Contract,\n';
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='bulk_resign_template.csv';a.click();
 }
 function clearResignCsv(){
@@ -7121,56 +7340,92 @@ function clearResignCsv(){
   document.getElementById('resignCsvPreview').innerHTML='';
   document.getElementById('resignCsvConfirmBtn').style.display='none';
 }
+function _resignSeparationType(raw){
+  if(!raw)return'Resigned';
+  return RESIGN_TYPES.find(t=>_csvNorm(t)===_csvNorm(raw))||RESIGN_TYPE_ALIASES[_csvNorm(raw)]||null;
+}
 function previewResignCsv(){
-  const file=document.getElementById('resignCsvFile').files[0];
   clearResignCsv();
-  if(!file){showMsg('resignCsvMsg','Select a CSV file first.',false);return;}
-  const reader=new FileReader();
-  reader.onload=e=>{
-    const lines=e.target.result.replace(/^\uFEFF/,'').split('\n').map(l=>l.trim()).filter(Boolean);
-    if(lines.length<2){showMsg('resignCsvMsg','No data rows found.',false);return;}
-    const rows=[],seen=new Set();
-    lines.slice(1).forEach((line,i)=>{
-      const cols=parseCSVLine(line).map(c=>c.trim());
-      const [empId='',lastRaw='',typeRaw='',remarks='']=cols;
-      const row={rowNo:i+2,empId,name:'',lastDay:'',reason:'',remarks,status:'ok',note:''};
-      rows.push(row);
-      if(!empId){row.status='error';row.note='Emp ID missing';return;}
-      const emp=employees.find(x=>x.id.toLowerCase()===empId.toLowerCase());
-      if(!emp){row.status='error';row.note='Employee not found';return;}
-      row.empId=emp.id;row.name=emp.name;
-      if(seen.has(emp.id)){row.status='skip';row.note='Duplicate row in file';return;}
-      seen.add(emp.id);
-      if(emp.active===false){row.status='skip';row.note='Already resigned'+(emp.lastWorkingDay?' (last day '+emp.lastWorkingDay+')':'');return;}
-      const lastDay=normalizeDate(lastRaw);
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(lastDay)){row.status='error';row.note='Last working day must be YYYY-MM-DD';return;}
-      row.lastDay=lastDay;
-      const reason=typeRaw?RESIGN_TYPES.find(t=>t.toLowerCase()===typeRaw.toLowerCase()):'Resigned';
-      if(!reason){row.status='error';row.note='Unknown separation type "'+typeRaw+'"';return;}
-      row.reason=reason;
+  _csvReadFile('resignCsvFile','resignCsvMsg','resignCsvPreview',({header,data,fileIssues})=>{
+    const hm=_csvMapHeader(header,RESIGN_CSV_SPEC);
+    if(hm.errors.length)return _csvFatal('resignCsvPreview','resignCsvMsg',hm.errors.join(' '));
+    fileIssues.push(...hm.warnings);
+    const todayDs=iso(getToday());
+    const get=(cells,k)=>hm.map[k]===undefined?'':_csvClean(cells[hm.map[k]]);
+    const rows=data.map(({line,cells})=>{
+      const issues=[];
+      const r={line,issues,raw:{},empId:'',sysName:'',lastDay:'',reason:'',remarks:''};
+      RESIGN_CSV_SPEC.forEach(s=>r.raw[s.key]=get(cells,s.key));
+      if(cells.length>header.length&&cells.slice(header.length).some(c=>_csvClean(c)))
+        issues.push({lvl:'warn',msg:'Row has more values than columns; extras ignored. If a value contains a comma, wrap it in quotes'});
+      // Emp ID
+      const idRaw=r.raw.id;
+      if(!idRaw)issues.push({lvl:'error',msg:'Emp ID is missing'});
+      else{
+        const f=_csvFindEmp(idRaw);
+        if(f.ambiguous)issues.push({lvl:'error',msg:`Emp ID matches several employees: ${f.ambiguous.join(', ')}. Use the exact ID`});
+        else if(!f.emp)issues.push({lvl:'error',msg:'Employee not found'+(/^\d+$/.test(idRaw)?'. If IDs have leading zeros or a prefix, Excel may have stripped them':'')});
+        else{
+          const emp=f.emp;r.empId=emp.id;r.sysName=emp.name;r.key=emp.id;
+          if(!f.exact)issues.push({lvl:'warn',msg:`ID "${idRaw}" matched ${emp.id} (case/spacing differs)`});
+          if(r.raw.name&&_csvNorm(r.raw.name)!==_csvNorm(emp.name))
+            issues.push({lvl:'error',msg:`Name in file "${r.raw.name}" doesn't match ${emp.id} "${emp.name}". Check the Emp ID`});
+          if(emp.active===false)
+            issues.push({lvl:'skip',msg:emp.lastWorkingDay&&emp.lastWorkingDay>=todayDs
+              ?`Resignation already pending (last day ${emp.lastWorkingDay}). Reinstate first to change it`
+              :`Already resigned${emp.lastWorkingDay?' (last day '+emp.lastWorkingDay+')':''}`});
+        }
+      }
+      // Last working day
+      const dt=_csvDate(r.raw.last);
+      if(dt.err)issues.push({lvl:'error',msg:dt.err==='missing'?'Last Working Day is missing':dt.err});
+      else{
+        r.lastDay=dt.value;
+        if(dt.warn)issues.push({lvl:'warn',msg:dt.warn});
+        const emp=r.empId&&ge(r.empId);
+        if(emp&&emp.anchor&&r.lastDay<emp.anchor)issues.push({lvl:'error',msg:`Last day is before the employee's anchor/start date (${emp.anchor})`});
+        const diff=_csvDaysBetween(todayDs,r.lastDay);
+        if(diff<0)issues.push({lvl:'warn',msg:`Last day already passed (${-diff} day(s) ago); employee is hidden immediately`});
+        else if(diff>365)issues.push({lvl:'warn',msg:'Last day is more than a year away. Check the year'});
+        if(emp&&!issues.some(i=>i.lvl==='error'||i.lvl==='skip')){
+          const lv=leaves.filter(l=>l.empId===emp.id&&l.status!=='cancelled'&&l.end>r.lastDay).length;
+          const ov=overrides.filter(o=>o.empId===emp.id&&o.status!=='cancelled'&&o.end>r.lastDay).length;
+          if(lv)issues.push({lvl:'warn',msg:`Has ${lv} leave record(s) after the last day. Review them in Leave log`});
+          if(ov)issues.push({lvl:'warn',msg:`Has ${ov} shift override(s) after the last day`});
+        }
+      }
+      // Separation type
+      const reason=_resignSeparationType(r.raw.type);
+      if(!reason)issues.push({lvl:'error',msg:`Unknown separation type "${r.raw.type}". Use: ${RESIGN_TYPES.join(', ')}`});
+      else{r.reason=reason;if(r.raw.type&&reason!==r.raw.type)issues.push({lvl:'warn',msg:`Separation type "${r.raw.type}" read as "${reason}"`});}
+      // Remarks
+      let rem=_csvSafeText(r.raw.remarks,'Remarks',issues);
+      if(rem.length>RESIGN_REMARKS_MAX){rem=rem.slice(0,RESIGN_REMARKS_MAX);issues.push({lvl:'warn',msg:`Remarks longer than ${RESIGN_REMARKS_MAX} characters (cut)`});}
+      r.remarks=rem;
+      return r;
     });
-    _resignCsvRows=rows.filter(r=>r.status==='ok');
-    const nErr=rows.filter(r=>r.status==='error').length,nSkip=rows.filter(r=>r.status==='skip').length;
-    const badge={ok:'b-approved',skip:'b-pending',error:'b-cancelled'},label={ok:'will resign',skip:'skipped',error:'error'};
-    document.getElementById('resignCsvPreview').innerHTML=`<div style="font-size:10px;font-weight:500;color:#5F5E5A;margin-bottom:4px">Preview: ${_resignCsvRows.length} to resign, ${nSkip} skipped, ${nErr} errors${nErr?' (fix the file and preview again, or confirm to apply only the valid rows)':''}</div>
-    <div style="max-height:300px;overflow-y:auto;border:0.5px solid #D3D1C7;border-radius:8px">
-    <table class="tbl" style="font-size:10px"><thead><tr><th>Row</th><th>Emp ID</th><th>Name</th><th>Last day</th><th>Type</th><th>Remarks</th><th>Result</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr><td>${r.rowNo}</td><td>${esc(r.empId)}</td><td>${esc(r.name)}</td><td>${r.lastDay?fmt(r.lastDay):''}</td><td>${esc(r.reason)}</td><td>${esc(r.remarks)}</td><td><span class="badge ${badge[r.status]}">${label[r.status]}</span>${r.note?`<br><span style="font-size:9px;color:#888780">${esc(r.note)}</span>`:''}</td></tr>`).join('')}</tbody></table></div>`;
+    _csvMarkDuplicates(rows,r=>[r.lastDay,r.reason,r.remarks].join('|'));
+    const st=_csvRenderPreview('resignCsvPreview',{rows,fileIssues,okLabel:'will resign',onlyIssues:false,cols:[
+      {label:'Emp ID',get:r=>r.empId||r.raw.id},{label:'Name',get:r=>r.sysName||r.raw.name},
+      {label:'Last day',get:r=>r.lastDay?fmt(r.lastDay):r.raw.last},{label:'Type',get:r=>r.reason||r.raw.type},{label:'Remarks',get:r=>r.remarks}]});
+    _resignCsvRows=rows.filter(r=>r.status==='ok'||r.status==='warn');
     document.getElementById('resignCsvCount').textContent=_resignCsvRows.length;
     document.getElementById('resignCsvConfirmBtn').style.display=_resignCsvRows.length?'':'none';
-  };
-  reader.readAsText(file);
+    showMsg('resignCsvMsg',_resignCsvRows.length?`Preview ready. Review, then confirm.`:'No rows can be applied. Fix the issues and preview again.',_resignCsvRows.length>0&&!st.error);
+  });
 }
 async function confirmResignCsv(btn){
   return _btnBusy(btn,_confirmResignCsvInner,'Processing…');
 }
 function _confirmResignCsvInner(){
   if(!_resignCsvRows.length)return;
-  if(!confirm(`Mark ${_resignCsvRows.length} employee(s) as resigned?`))return;
-  let done=0;
+  if(_csvBlockedReadOnly('resignCsvMsg'))return;
+  const st=_csvState['resignCsvPreview'].rows.reduce((a,r)=>(a[r.status]=(a[r.status]||0)+1,a),{});
+  if(!confirm(`Mark ${_resignCsvRows.length} employee(s) as resigned?`+(st.error?`\n\n${st.error} row(s) with errors will NOT be applied.`:'')+(st.warn?`\n${st.warn} row(s) have warnings.`:'')))return;
+  let done=0;const changed=[];
   _resignCsvRows.forEach(r=>{
     const emp=ge(r.empId);
-    if(!emp||emp.active===false)return; // changed since preview
+    if(!emp||emp.active===false){changed.push(r.empId);return;} // changed since preview
     emp.active=false;
     emp.resignedDate=iso(today);
     emp.lastWorkingDay=r.lastDay;
@@ -7181,50 +7436,159 @@ function _confirmResignCsvInner(){
       note:r.reason+(r.remarks?' — '+r.remarks:'')+' | Last day: '+r.lastDay});
     done++;
   });
-  save();
+  if(done)save();
   renderEmpTable();buildDropdowns();renderHome();
   clearResignCsv();
   document.getElementById('resignCsvFile').value='';
-  showMsg('resignCsvMsg',`Done: ${done} employee(s) marked as resigned.`,true);
+  showMsg('resignCsvMsg',`Done: ${done} employee(s) marked as resigned.`+(changed.length?` ${changed.length} skipped because they changed since preview (${changed.slice(0,5).join(', ')}).`:''),done>0);
 }
-function importCsv(){
-  const file=document.getElementById('csvFile').files[0];
-  const skipDupe=document.getElementById('csvSkipDupe').checked;
+
+// ─── EMPLOYEE CSV IMPORT ─────────────────────────────────────────────────────
+const EMP_CSV_SPEC=[
+  {key:'id',label:'Emp ID',aliases:['Employee ID','Employee No','Emp No','EmpID','ID'],required:true},
+  {key:'name',label:'Full Name',aliases:['Name','Employee Name'],required:true},
+  {key:'unit',label:'Unit Type',aliases:['Unit'],required:true},
+  {key:'type',label:'Type',aliases:['Shift Pattern','Pattern'],required:true},
+  {key:'firstShift',label:'First Shift',aliases:['Shift'],required:true},
+  {key:'anchor',label:'Anchor Date',aliases:['Anchor'],required:true},
+  {key:'rest',label:'Base Rest Day',aliases:['Rest Day','Base Rest','Rest'],required:true},
+  {key:'role',label:'Role',aliases:['Employee Role']}
+];
+const EMP_ID_RE=/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/;
+const REST_NAMES={sun:0,sunday:0,mon:1,monday:1,tue:2,tues:2,tuesday:2,wed:3,wednesday:3,thu:4,thur:4,thurs:4,thursday:4,fri:5,friday:5,sat:6,saturday:6};
+let _empCsvRows=[];
+function clearEmpCsv(){
+  _empCsvRows=[];
+  document.getElementById('csvPreview').innerHTML='';
+  document.getElementById('empCsvConfirmBtn').style.display='none';
+}
+function previewEmpCsv(){
+  clearEmpCsv();
   const overwrite=document.getElementById('csvOverwrite').checked;
-  if(!file){showMsg('csvMsg','Select a CSV file first.',false);return;}
-  const reader=new FileReader();
-  reader.onload=e=>{
-    const lines=e.target.result.split('\n').map(l=>l.trim()).filter(Boolean);
-    if(lines.length<2){showMsg('csvMsg','No data rows found.',false);return;}
-    let added=0,skipped=0,overwritten=0,errors=[];const preview=[];
-    lines.slice(1).forEach((line,i)=>{
-      const cols=parseCSVLine(line);
-      if(cols.length<7){errors.push(`Row ${i+2}: need 7 columns, got ${cols.length}`);return;}
-      const [empId,name,unit,type,firstShift,anchor,restRaw]=cols.map(c=>c.trim());
-      const baseRest=parseInt(restRaw);
-      if(!empId||!name||!anchor){errors.push(`Row ${i+2}: Emp ID, name or anchor missing`);return;}
-      if(!['rotating','trainee'].includes(type.toLowerCase())){errors.push(`Row ${i+2}: type must be rotating/trainee`);return;}
-      const roleRaw=cols[7]?(cols[7].trim().toLowerCase()):'regular';
-      const role=['regular','reliever','trainee'].includes(roleRaw)?roleRaw:'regular';
-      if(!['Day','Night'].includes(firstShift)){errors.push(`Row ${i+2}: first shift must be Day/Night`);return;}
-      if(isNaN(baseRest)||baseRest<0||baseRest>6){errors.push(`Row ${i+2}: rest day must be 0-6`);return;}
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(anchor)){errors.push(`Row ${i+2}: anchor must be YYYY-MM-DD`);return;}
-      const existing=employees.find(e=>e.id===empId);
-      if(existing){
-        if(skipDupe&&!overwrite){skipped++;preview.push({empId,name,status:'skipped'});return;}
-        if(overwrite){Object.assign(existing,{name,unit,type:type.toLowerCase(),role,firstShift,anchor,baseRest});overwritten++;preview.push({empId,name,status:'overwritten'});return;}
+  _csvReadFile('csvFile','csvMsg','csvPreview',({header,data,fileIssues})=>{
+    const hm=_csvMapHeader(header,EMP_CSV_SPEC);
+    if(hm.errors.length)return _csvFatal('csvPreview','csvMsg',hm.errors.join(' '));
+    fileIssues.push(...hm.warnings);
+    const todayDs=iso(getToday());
+    const units=[...new Set(employees.map(e=>e.unit).filter(Boolean))];
+    const get=(cells,k)=>hm.map[k]===undefined?'':_csvClean(cells[hm.map[k]]);
+    const rows=data.map(({line,cells})=>{
+      const issues=[],r={line,issues,raw:{},rec:{},mode:'add'};
+      EMP_CSV_SPEC.forEach(s=>r.raw[s.key]=get(cells,s.key));
+      const rec=r.rec;
+      if(cells.length>header.length&&cells.slice(header.length).some(c=>_csvClean(c)))
+        issues.push({lvl:'warn',msg:'Row has more values than columns; extras ignored. If a value contains a comma, wrap it in quotes'});
+      // Emp ID
+      const id=r.raw.id;
+      if(!id)issues.push({lvl:'error',msg:'Emp ID is missing'});
+      else if(id.length>30)issues.push({lvl:'error',msg:'Emp ID is longer than 30 characters'});
+      else if(!EMP_ID_RE.test(id))issues.push({lvl:'error',msg:'Emp ID may only contain letters, numbers, - _ . / (no spaces)'});
+      else{
+        rec.id=id;r.key=_csvNorm(id);
+        const f=_csvFindEmp(id);
+        if(f.ambiguous)issues.push({lvl:'error',msg:`Emp ID is similar to several existing IDs: ${f.ambiguous.join(', ')}`});
+        else if(f.emp&&!f.exact)issues.push({lvl:'error',msg:`A similar ID already exists: ${f.emp.id} (case/spacing differs). Use the exact ID`});
+        else if(f.emp){
+          if(!overwrite)issues.push({lvl:'skip',msg:'Emp ID already exists (choose "Overwrite" to update it)'});
+          else{r.mode='overwrite';r.existing=f.emp;if(f.emp.active===false)issues.push({lvl:'warn',msg:'Employee is resigned; overwrite will not reinstate them'});}
+        }
       }
-      employees.push({id:empId,name,unit,type:type.toLowerCase(),role,firstShift,anchor:normalizeDate(anchor),baseRest});
-      actlog.push({id:aNid++,empId,name,reqType:'Employee',action:'Employee CSV Import',dateReq:iso(today),admin:currentUser,username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow()});
-      added++;preview.push({empId,name,status:'added'});
+      // Name
+      let name=_csvSafeText(r.raw.name,'Full Name',issues);
+      if(!name)issues.push({lvl:'error',msg:'Full Name is missing'});
+      else if(name.length>100)issues.push({lvl:'error',msg:'Full Name is longer than 100 characters'});
+      else{rec.name=name;if(/\d/.test(name))issues.push({lvl:'warn',msg:'Full Name contains numbers. Check the columns are in the right place'});}
+      // Unit
+      const unit=_csvSafeText(r.raw.unit,'Unit Type',issues);
+      if(!unit)issues.push({lvl:'error',msg:'Unit Type is missing'});
+      else if(unit.length>50)issues.push({lvl:'error',msg:'Unit Type is longer than 50 characters'});
+      else{
+        const known=units.find(u=>u.toLowerCase()===unit.toLowerCase());
+        rec.unit=known||unit;
+        if(known&&known!==unit)issues.push({lvl:'warn',msg:`Unit "${unit}" matched existing "${known}"`});
+        else if(!known&&units.length)issues.push({lvl:'warn',msg:`New unit "${unit}". Check spelling`});
+      }
+      // Type
+      const type=r.raw.type.toLowerCase();
+      if(!type)issues.push({lvl:'error',msg:'Type is missing'});
+      else if(!['rotating','trainee'].includes(type))issues.push({lvl:'error',msg:`Type "${r.raw.type}" must be rotating or trainee`});
+      else rec.type=type;
+      // First shift
+      const fs=r.raw.firstShift.toLowerCase();
+      if(!fs)issues.push({lvl:'error',msg:'First Shift is missing'});
+      else if(!['day','night'].includes(fs))issues.push({lvl:'error',msg:`First Shift "${r.raw.firstShift}" must be Day or Night`});
+      else{rec.firstShift=fs==='day'?'Day':'Night';if(rec.type==='trainee'&&rec.firstShift==='Night')issues.push({lvl:'warn',msg:'Trainee pattern is Day only; First Shift Night has no effect'});}
+      // Anchor date
+      const dt=_csvDate(r.raw.anchor);
+      if(dt.err)issues.push({lvl:'error',msg:dt.err==='missing'?'Anchor Date is missing':'Anchor Date '+dt.err});
+      else{rec.anchor=dt.value;if(dt.warn)issues.push({lvl:'warn',msg:dt.warn});if(dt.value>todayDs)issues.push({lvl:'warn',msg:'Anchor Date is in the future'});}
+      // Base rest day
+      const restRaw=r.raw.rest;
+      let rest=null;
+      if(/^[0-6](\.0+)?$/.test(restRaw))rest=parseInt(restRaw);
+      else if(REST_NAMES[restRaw.toLowerCase()]!==undefined)rest=REST_NAMES[restRaw.toLowerCase()];
+      if(!restRaw)issues.push({lvl:'error',msg:'Base Rest Day is missing'});
+      else if(rest===null)issues.push({lvl:'error',msg:`Base Rest Day "${restRaw}" must be 0-6 (0=Sun) or a day name`});
+      else rec.baseRest=rest;
+      // Role
+      const role=r.raw.role.toLowerCase();
+      if(!role)rec.role='regular';
+      else if(!['regular','reliever','trainee'].includes(role))issues.push({lvl:'error',msg:`Role "${r.raw.role}" must be regular, reliever or trainee`});
+      else rec.role=role;
+      if(rec.role==='trainee'&&rec.type==='rotating')issues.push({lvl:'warn',msg:'Role is trainee but Type is rotating'});
+      // Overwrite: show what changes, flag schedule changes
+      if(r.mode==='overwrite'&&!issues.some(i=>i.lvl==='error')){
+        const ex=r.existing,fields=['name','unit','type','role','firstShift','anchor','baseRest'];
+        const diff=fields.filter(k=>String(k==='role'?(ex.role||'regular'):ex[k])!==String(rec[k]));
+        if(!diff.length)issues.push({lvl:'skip',msg:'No changes'});
+        else{
+          issues.push({lvl:'warn',msg:'Will update: '+diff.join(', ')});
+          if(diff.some(k=>['type','firstShift','anchor','baseRest'].includes(k)))issues.push({lvl:'warn',msg:'Schedule will change for this employee'});
+        }
+      }
+      return r;
     });
-    save();buildDropdowns();renderEmpTable();
-    showMsg('csvMsg',`Done: ${added} added, ${overwritten} overwritten, ${skipped} skipped.${errors.length?' '+errors.slice(0,3).join('; '):''}`,errors.length===0);
-    document.getElementById('csvPreview').innerHTML=preview.length?`<div style="font-size:10px;font-weight:500;color:#5F5E5A;margin-bottom:4px">Preview (${preview.length} rows):</div>
-    <table class="tbl" style="font-size:10px"><thead><tr><th>Emp ID</th><th>Name</th><th>Result</th></tr></thead>
-    <tbody>${preview.slice(0,25).map(r=>`<tr><td>${r.empId}</td><td>${r.name}</td><td><span class="badge ${r.status==='added'?'b-approved':r.status==='overwritten'?'b-pending':'b-cancelled'}">${r.status}</span></td></tr>`).join('')}${preview.length>25?`<tr><td colspan="3" style="text-align:center;color:#888780">+${preview.length-25} more</td></tr>`:''}</tbody></table>`:'';
-  };
-  reader.readAsText(file);
+    _csvMarkDuplicates(rows,r=>JSON.stringify(r.raw));
+    const st=_csvRenderPreview('csvPreview',{rows,fileIssues,okLabel:overwrite?'will add/update':'will add',onlyIssues:false,cols:[
+      {label:'Emp ID',get:r=>r.raw.id},{label:'Name',get:r=>r.rec.name||r.raw.name},{label:'Unit',get:r=>r.rec.unit||r.raw.unit},
+      {label:'Type',get:r=>r.rec.type||r.raw.type},{label:'First shift',get:r=>r.rec.firstShift||r.raw.firstShift},
+      {label:'Anchor',get:r=>r.rec.anchor||r.raw.anchor},{label:'Rest',get:r=>r.rec.baseRest!==undefined?['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][r.rec.baseRest]:r.raw.rest},
+      {label:'Role',get:r=>r.rec.role||r.raw.role},{label:'Action',get:r=>r.status==='error'||r.status==='skip'?'':r.mode}]});
+    _empCsvRows=rows.filter(r=>r.status==='ok'||r.status==='warn');
+    document.getElementById('empCsvCount').textContent=_empCsvRows.length;
+    document.getElementById('empCsvConfirmBtn').style.display=_empCsvRows.length?'':'none';
+    showMsg('csvMsg',_empCsvRows.length?'Preview ready. Review, then import.':'No rows can be imported. Fix the issues and preview again.',_empCsvRows.length>0&&!st.error);
+  });
+}
+async function importCsv(btn){
+  return _btnBusy(btn,_importCsvInner,'Importing…');
+}
+function _importCsvInner(){
+  if(!_empCsvRows.length)return;
+  if(_csvBlockedReadOnly('csvMsg'))return;
+  const st=_csvState['csvPreview'].rows.reduce((a,r)=>(a[r.status]=(a[r.status]||0)+1,a),{});
+  const nAdd=_empCsvRows.filter(r=>r.mode==='add').length,nUpd=_empCsvRows.length-nAdd;
+  if(!confirm(`Import ${nAdd} new employee(s)`+(nUpd?` and update ${nUpd} existing`:'')+'?'+(st.error?`\n\n${st.error} row(s) with errors will NOT be imported.`:'')+(st.warn?`\n${st.warn} row(s) have warnings.`:'')))return;
+  let added=0,updated=0;const changed=[];
+  _empCsvRows.forEach(r=>{
+    const rec=r.rec,cur=employees.find(e=>e.id===rec.id);
+    if(r.mode==='add'){
+      if(cur){changed.push(rec.id);return;} // added by someone else since preview
+      employees.push({id:rec.id,name:rec.name,unit:rec.unit,type:rec.type,role:rec.role,firstShift:rec.firstShift,anchor:rec.anchor,baseRest:rec.baseRest});
+      actlog.push({id:aNid++,empId:rec.id,name:rec.name,reqType:'Employee',action:'Employee CSV Import',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow()});
+      added++;
+    }else{
+      if(!cur){changed.push(rec.id);return;} // deleted since preview
+      Object.assign(cur,{name:rec.name,unit:rec.unit,type:rec.type,role:rec.role,firstShift:rec.firstShift,anchor:rec.anchor,baseRest:rec.baseRest});
+      actlog.push({id:aNid++,empId:rec.id,name:rec.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow(),note:'Overwritten by CSV import'});
+      updated++;
+    }
+  });
+  if(added+updated)save();
+  buildDropdowns();renderEmpTable();
+  clearEmpCsv();
+  document.getElementById('csvFile').value='';
+  showMsg('csvMsg',`Done: ${added} added, ${updated} updated.`+(changed.length?` ${changed.length} skipped because they changed since preview (${changed.slice(0,5).join(', ')}).`:''),added+updated>0);
 }
 function exportEmpCsv(){
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];

@@ -6415,6 +6415,8 @@ function addOverride(){
   if(!empId||!start||!end){showMsg('ovrMsg','Fill in Emp ID, from and to date.',false);return;}
   if(!ge(empId)){showMsg('ovrMsg','Employee ID not found.',false);return;}
   if(end<start){showMsg('ovrMsg','End date must be on or after start date.',false);return;}
+  const conflict=_ovrConflict(empId,start,end);
+  if(conflict){showMsg('ovrMsg',`Conflict: ${empId} already has a ${conflict.shift} override from ${fmt(conflict.start)} to ${fmt(conflict.end)}. Remove it first.`,false);return;}
   const e=ge(empId);
   overrides.push({id:oNid++,empId,shift,start,end,status,admin,reason});
   actlog.push({id:aNid++,empId,name:e?e.name:empId,reqType:'Special Schedule',action:'Special Schedule Added',dateReq:iso(getToday()),admin,username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});

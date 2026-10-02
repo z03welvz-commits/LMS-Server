@@ -6411,6 +6411,7 @@ function _importOvrCsvInner(){
   showMsg('ovrCsvMsg',`Done: ${added} override(s) imported.`+(changed.length?` ${changed.length} skipped because records changed since preview (${changed.slice(0,5).join(', ')}).`:''),added>0);
 }
 function addOverride(){
+  if(isReadOnly()){showMsg('ovrMsg','Read-only: another user holds the edit lock. Override not saved.',false);return;}
   const empId=(v('oEmpId')||'').trim(),shift=v('oShift'),start=v('oStart'),end=v('oEnd'),status=v('oStatus'),admin=(v('oAdmin')||'').trim()||((()=>{const p=getAdminProfile();return p.nickname||p.fullname||currentUser||'Admin';})()),reason=v('oReason');
   if(!empId||!start||!end){showMsg('ovrMsg','Fill in Emp ID, from and to date.',false);return;}
   if(!ge(empId)){showMsg('ovrMsg','Employee ID not found.',false);return;}

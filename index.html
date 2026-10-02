@@ -1185,7 +1185,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             <div style="background:#F1EFE8;border-radius:8px;padding:12px;margin-bottom:12px;font-size:10px;color:#5F5E5A;line-height:1.8">
               <strong style="color:#1B3A6B">CSV columns (row 1 = header, any order):</strong><br>
               <code style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7">Emp ID, Full Name, Last Working Day, Separation Type, Remarks</code><br>
-              Required: <code>Emp ID</code>, <code>Last Working Day</code> (<code>YYYY-MM-DD</code>) | Separation Type: <code>Resigned</code> <code>Terminated</code> <code>Retired</code> <code>AWOL</code> <code>End of Contract</code> <code>Other</code> (blank = Resigned) | Full Name: optional, checked against the system to catch wrong IDs | Remarks: optional<br>
+              Required: <code>Emp ID</code>, <code>Last Working Day</code> (<code>YYYY-MM-DD</code>) | Separation Type: <code>Resigned</code> <code>Terminated</code> <code>Retired</code> <code>AWOL</code> <code>End of Contract</code> <code>Other</code> (blank = Resigned). Everyday wording and small typos are understood too, e.g. <code>Resigned (Voluntary)</code>, <code>absent without leave</code>, <code>terminated for cause</code>, <code>end of project</code>; the preview shows how each was read | Full Name: optional, checked against the system to catch wrong IDs | Remarks: optional<br>
               Employees stay on schedules until their last working day passes. Records are kept and can be reinstated anytime. Click <strong>Preview</strong> to check every row before anything is saved.<br>
               <button class="btn btn-ghost" style="margin-top:8px;font-size:10px;padding:4px 10px" onclick="downloadResignTemplate()">Download template</button>
             </div>
@@ -7464,9 +7464,34 @@ function _csvBlockedReadOnly(msgId){
 // ─── BULK RESIGN VIA CSV ─────────────────────────────────────────────────────
 // Applies the same fields as the single Resign modal (_confirmResignInner).
 const RESIGN_TYPES=['Resigned','Terminated','Retired','AWOL','End of Contract','Other'];
-const RESIGN_TYPE_ALIASES={resign:'Resigned',resignation:'Resigned',voluntary:'Resigned',resignedvoluntary:'Resigned',
-  terminate:'Terminated',termination:'Terminated',dismissed:'Terminated',retire:'Retired',retirement:'Retired',
-  absentwithoutleave:'AWOL',eoc:'End of Contract',endofcontract:'End of Contract',contractend:'End of Contract',endcontract:'End of Contract',others:'Other'};
+// Smart separation type matching for free-text CSV values.
+// 1) exact name, 2) keyword phrases (checked in priority order), 3) typo-tolerant word match.
+// Phrases are matched against the lowercased text with punctuation turned into spaces.
+const RESIGN_TYPE_RULES=[
+  {type:'AWOL',phrases:['awol','a w o l','absent without','absence without','abandon','no show','noshow','no call','absconded','unauthorized absence','unexcused absence']},
+  {type:'Terminated',phrases:['terminat','involuntary','dismiss','fired','discharg','for cause','just cause','authorized cause','redundan','retrench','laid off','lay off','layoff','let go','separated by company','company initiated','forced','closure']},
+  {type:'Retired',phrases:['retir','pension','old age']},
+  {type:'End of Contract',phrases:['eoc','end of contract','contract end','end contract','contract expir','expired contract','contract complet','contract finish','finished contract','end of project','project end','project complet','completion of project','end of term','term end','endo','non renewal','not renewed','no renewal','probationary','seasonal','fixed term']},
+  {type:'Resigned',phrases:['resign','voluntary','quit','left the company','personal reason','self initiated','employee initiated']},
+  {type:'Other',phrases:['other','deceased','death','died','passed away','medical','health']}
+];
+// Plain synonyms: accepted silently, like the exact name (compared with _csvNorm).
+const RESIGN_TYPE_SYNONYMS={resignedvoluntary:'Resigned',voluntaryresigned:'Resigned',voluntaryresignation:'Resigned',resignationvoluntary:'Resigned',
+  resign:'Resigned',resignation:'Resigned',voluntary:'Resigned',terminate:'Terminated',termination:'Terminated',
+  retire:'Retired',retirement:'Retired',absentwithoutleave:'AWOL',absentwithoutofficialleave:'AWOL',
+  eoc:'End of Contract',endofcontract:'End of Contract',contractend:'End of Contract',endcontract:'End of Contract',others:'Other'};
+// Root words for typo matching (e.g. "resgined", "terminatd", "retierd").
+const RESIGN_TYPE_ROOTS={resigned:'Resigned',resign:'Resigned',resignation:'Resigned',voluntary:'Resigned',
+  terminated:'Terminated',termination:'Terminated',terminate:'Terminated',dismissed:'Terminated',dismissal:'Terminated',
+  retired:'Retired',retirement:'Retired',abandonment:'AWOL',contract:'End of Contract',expired:'End of Contract',deceased:'Other'};
+function _levenshtein(a,b){
+  const d=Array.from({length:b.length+1},(_,i)=>i);
+  for(let i=1;i<=a.length;i++){
+    let prev=d[0];d[0]=i;
+    for(let j=1;j<=b.length;j++){const t=d[j];d[j]=Math.min(d[j]+1,d[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));prev=t;}
+  }
+  return d[b.length];
+}
 const RESIGN_CSV_SPEC=[
   {key:'id',label:'Emp ID',aliases:['Employee ID','Employee No','Emp No','EmpID','ID'],required:true},
   {key:'name',label:'Full Name',aliases:['Name','Employee Name']},
@@ -7486,9 +7511,24 @@ function clearResignCsv(){
   document.getElementById('resignCsvPreview').innerHTML='';
   document.getElementById('resignCsvConfirmBtn').style.display='none';
 }
+// Returns {type, how:'blank'|'exact'|'keyword'|'typo', also:[other types mentioned]} or null.
 function _resignSeparationType(raw){
-  if(!raw)return'Resigned';
-  return RESIGN_TYPES.find(t=>_csvNorm(t)===_csvNorm(raw))||RESIGN_TYPE_ALIASES[_csvNorm(raw)]||null;
+  if(!raw)return{type:'Resigned',how:'blank',also:[]};
+  const exact=RESIGN_TYPES.find(t=>_csvNorm(t)===_csvNorm(raw))||RESIGN_TYPE_SYNONYMS[_csvNorm(raw)];
+  if(exact)return{type:exact,how:'exact',also:[]};
+  const text=' '+_csvClean(raw).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()+' ';
+  const hit=t=>RESIGN_TYPE_RULES.find(r=>r.type===t).phrases.some(ph=>ph.length<=4?text.includes(' '+ph+' '):text.includes(ph));
+  // "involuntary" contains "voluntary"; treat it as Terminated only
+  let types=RESIGN_TYPE_RULES.map(r=>r.type).filter(t=>t==='Resigned'&&/ involuntary /.test(text)&&!/ resign/.test(text)?false:hit(t));
+  if(types.length>1)types=types.filter(t=>t!=='Other'); // "Other" only when nothing more specific matches
+  if(types.length)return{type:types[0],how:'keyword',also:types.slice(1)};
+  // Typo tolerance: compare each word with known root words
+  let best=null;
+  text.trim().split(' ').filter(w=>w.length>=5).forEach(w=>Object.entries(RESIGN_TYPE_ROOTS).forEach(([root,type])=>{
+    const dist=_levenshtein(w,root),max=root.length>=6?2:1;
+    if(dist<=max&&(!best||dist<best.dist))best={type,dist};
+  }));
+  return best?{type:best.type,how:'typo',also:[]}:null;
 }
 function previewResignCsv(){
   clearResignCsv();
@@ -7541,11 +7581,20 @@ function previewResignCsv(){
         }
       }
       // Separation type
-      const reason=_resignSeparationType(r.raw.type);
-      if(!reason)issues.push({lvl:'error',msg:`Unknown separation type "${r.raw.type}". Use: ${RESIGN_TYPES.join(', ')}`});
-      else{r.reason=reason;if(r.raw.type&&reason!==r.raw.type)issues.push({lvl:'warn',msg:`Separation type "${r.raw.type}" read as "${reason}"`});}
-      // Remarks
+      const sep=_resignSeparationType(r.raw.type);
+      let typeDetail='';
+      if(!sep)issues.push({lvl:'error',msg:`Separation type "${r.raw.type}" not recognised. Use: ${RESIGN_TYPES.join(', ')} (or wording like "voluntary resignation", "absent without leave", "end of project")`});
+      else{
+        r.reason=sep.type;
+        if(sep.how==='keyword'||sep.how==='typo'){
+          issues.push({lvl:'warn',msg:`Separation type "${r.raw.type}" read as "${sep.type}"`+(sep.how==='typo'?' (possible typo)':'')+(sep.also.length?`. Also mentions ${sep.also.join(', ')}; check it`:'')});
+          // Keep the original wording when it says more than the type name (e.g. "Terminated - for cause")
+          if(_csvNorm(r.raw.type)!==_csvNorm(sep.type)&&sep.how==='keyword')typeDetail=r.raw.type;
+        }
+      }
+      // Remarks (original separation wording is kept in front, so no detail is lost)
       let rem=_csvSafeText(r.raw.remarks,'Remarks',issues);
+      if(typeDetail&&!_csvNorm(rem).includes(_csvNorm(typeDetail)))rem=_csvSafeText(typeDetail,'Separation Type',issues)+(rem?' — '+rem:'');
       if(rem.length>RESIGN_REMARKS_MAX){rem=rem.slice(0,RESIGN_REMARKS_MAX);issues.push({lvl:'warn',msg:`Remarks longer than ${RESIGN_REMARKS_MAX} characters (cut)`});}
       r.remarks=rem;
       return r;

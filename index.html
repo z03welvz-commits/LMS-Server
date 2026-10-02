@@ -6178,6 +6178,7 @@ function previewLeaveCsv(){
     const hm=_csvMapHeader(header,LEAVE_CSV_SPEC);
     if(hm.errors.length)return _csvFatal('leaveCsvPreview','leaveCsvMsg',hm.errors.join(' '));
     fileIssues.push(...hm.warnings);
+    fileIssues.push(_csvDetectDateOrder(data,hm.map,['start','end','filed']));
     const codes=getLeaveTypes().map(t=>t.code);
     const todayDs=iso(getToday());
     const get=(cells,k)=>hm.map[k]===undefined?'':_csvClean(cells[hm.map[k]]);
@@ -6346,6 +6347,7 @@ function previewOvrCsv(){
     const hm=_csvMapHeader(header,OVR_CSV_SPEC);
     if(hm.errors.length)return _csvFatal('ovrCsvPreview','ovrCsvMsg',hm.errors.join(' '));
     fileIssues.push(...hm.warnings);
+    fileIssues.push(_csvDetectDateOrder(data,hm.map,['start','end']));
     const get=(cells,k)=>hm.map[k]===undefined?'':_csvClean(cells[hm.map[k]]);
     const rows=data.map(({line,cells})=>{
       const r={line,issues:[],raw:{}};
@@ -7371,17 +7373,37 @@ function _csvMapHeader(header,spec){
   return{map,errors,warnings};
 }
 
-// Accepts YYYY-MM-DD (also / or .), DD/MM/YYYY (app convention), optional time part.
-// Returns {value} or {err}; may include {warn} for ambiguous day/month.
+// Day/month order for slash dates in the current file, set by _csvDetectDateOrder before each preview.
+// 'mdy' (Excel default in PH/US), 'dmy', or 'mixed' when the file uses both.
+let _csvDateOrder='mdy';
+function _csvDetectDateOrder(data,map,keys){
+  let dmy=0,mdy=0;
+  data.forEach(({cells})=>keys.forEach(k=>{
+    if(map[k]===undefined)return;
+    const mt=_csvClean(cells[map[k]]).match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
+    if(!mt)return;
+    if(+mt[1]>12&&+mt[2]<=12)dmy++;
+    else if(+mt[2]>12&&+mt[1]<=12)mdy++;
+  }));
+  _csvDateOrder=dmy&&mdy?'mixed':dmy?'dmy':'mdy';
+  if(_csvDateOrder==='dmy')return'Dates like 05/10/2026 were read as day/month/year, matching the rest of this file.';
+  if(_csvDateOrder==='mixed')return'This file mixes month/day/year and day/month/year dates. Unclear dates are rejected; use YYYY-MM-DD.';
+  return mdy?'Dates like 10/1/2026 were read as month/day/year (Oct 1), matching the rest of this file.'
+    :'Dates like 10/1/2026 were read as month/day/year (Oct 1), the Excel default. Use YYYY-MM-DD if that is wrong.';
+}
+// Accepts YYYY-MM-DD (also / or .), slash dates in the file's day/month order, optional time part.
+// Returns {value} or {err}.
 function _csvDate(raw){
   raw=_csvClean(raw).replace(/[ T]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?\s*(am|pm|z)?$/i,'');
   if(!raw)return{err:'missing'};
   let y,m,d,mt,warn='';
   if((mt=raw.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/))){y=+mt[1];m=+mt[2];d=+mt[3];}
   else if((mt=raw.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/))){
-    d=+mt[1];m=+mt[2];y=+mt[3];
-    if(m>12&&d<=12)return{err:`"${raw}" looks like month/day/year. Use YYYY-MM-DD`};
-    if(d<=12&&m<=12&&d!==m)warn=`"${raw}" read as day/month/year (${y}-${_csvPad(m)}-${_csvPad(d)}). Use YYYY-MM-DD to avoid mix-ups`;
+    const a=+mt[1],b=+mt[2];y=+mt[3];
+    // An unambiguous value (one part > 12) is always read the only way it can be
+    const order=a>12?'dmy':b>12?'mdy':_csvDateOrder;
+    if(order==='mixed'&&a!==b)return{err:`"${raw}" could be day/month or month/day. Use YYYY-MM-DD`};
+    if(order==='dmy'){d=a;m=b;}else{m=a;d=b;}
   }
   else if(/^\d{1,2}[-\/.]\d{1,2}[-\/.]\d{2}$/.test(raw))return{err:`"${raw}" has a 2-digit year. Use YYYY-MM-DD`};
   else if(/^\d{4,6}(\.\d+)?$/.test(raw))return{err:`"${raw}" is an Excel date number. Format the column as a date (YYYY-MM-DD) before saving`};
@@ -7512,6 +7534,26 @@ function clearResignCsv(){
   document.getElementById('resignCsvConfirmBtn').style.display='none';
 }
 // Returns {type, how:'blank'|'exact'|'keyword'|'typo', also:[other types mentioned]} or null.
+// Name cross-check tolerant of order, commas, case, accents (ñ), suffixes and initials:
+// "Ado, Ronald S." matches "ADO, RONALD SARQUIL". Every word in the file must match a
+// word in the system name (an initial matches a word starting with it, one typo allowed
+// in longer words), and at least one full word must match.
+function _csvNameMatches(fileName,sysName){
+  const SUFFIX=['jr','sr','ii','iii','iv'];
+  const words=n=>String(n||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().split(/[^a-z]+/).filter(w=>w&&!SUFFIX.includes(w));
+  const fw=words(fileName),sw=words(sysName);
+  if(!fw.length)return true;
+  const used=new Set();let full=0;
+  for(const w of fw){
+    let idx=sw.findIndex((x,i)=>!used.has(i)&&x===w);
+    if(idx<0&&w.length===1)idx=sw.findIndex((x,i)=>!used.has(i)&&x.startsWith(w));
+    if(idx<0&&w.length>=5)idx=sw.findIndex((x,i)=>!used.has(i)&&x.length>=5&&_levenshtein(w,x)<=1);
+    if(idx<0)idx=sw.findIndex((x,i)=>!used.has(i)&&x.length===1&&w.startsWith(x));
+    if(idx<0)return false;
+    used.add(idx);if(w.length>1)full++;
+  }
+  return full>0;
+}
 function _resignSeparationType(raw){
   if(!raw)return{type:'Resigned',how:'blank',also:[]};
   const exact=RESIGN_TYPES.find(t=>_csvNorm(t)===_csvNorm(raw))||RESIGN_TYPE_SYNONYMS[_csvNorm(raw)];
@@ -7536,6 +7578,7 @@ function previewResignCsv(){
     const hm=_csvMapHeader(header,RESIGN_CSV_SPEC);
     if(hm.errors.length)return _csvFatal('resignCsvPreview','resignCsvMsg',hm.errors.join(' '));
     fileIssues.push(...hm.warnings);
+    fileIssues.push(_csvDetectDateOrder(data,hm.map,['last']));
     const todayDs=iso(getToday());
     const get=(cells,k)=>hm.map[k]===undefined?'':_csvClean(cells[hm.map[k]]);
     const rows=data.map(({line,cells})=>{
@@ -7554,8 +7597,9 @@ function previewResignCsv(){
         else{
           const emp=f.emp;r.empId=emp.id;r.sysName=emp.name;r.key=emp.id;
           if(!f.exact)issues.push({lvl:'warn',msg:`ID "${idRaw}" matched ${emp.id} (case/spacing differs)`});
-          if(r.raw.name&&_csvNorm(r.raw.name)!==_csvNorm(emp.name))
-            issues.push({lvl:'error',msg:`Name in file "${r.raw.name}" doesn't match ${emp.id} "${emp.name}". Check the Emp ID`});
+          // Emp ID decides the employee; the name is only a cross-check and never blocks
+          if(r.raw.name&&!_csvNameMatches(r.raw.name,emp.name))
+            issues.push({lvl:'warn',msg:`Name in file "${r.raw.name}" differs from ${emp.id} "${emp.name}". Check the Emp ID is right`});
           if(emp.active===false)
             issues.push({lvl:'skip',msg:emp.lastWorkingDay&&emp.lastWorkingDay>=todayDs
               ?`Resignation already pending (last day ${emp.lastWorkingDay}). Reinstate first to change it`
@@ -7569,7 +7613,7 @@ function previewResignCsv(){
         r.lastDay=dt.value;
         if(dt.warn)issues.push({lvl:'warn',msg:dt.warn});
         const emp=r.empId&&ge(r.empId);
-        if(emp&&emp.anchor&&r.lastDay<emp.anchor)issues.push({lvl:'error',msg:`Last day is before the employee's anchor/start date (${emp.anchor})`});
+        if(emp&&emp.anchor&&r.lastDay<emp.anchor)issues.push({lvl:'warn',msg:`Last day is before the employee's anchor date (${emp.anchor}). Check the date`});
         const diff=_csvDaysBetween(todayDs,r.lastDay);
         if(diff<0)issues.push({lvl:'warn',msg:`Last day already passed (${-diff} day(s) ago); employee is hidden immediately`});
         else if(diff>365)issues.push({lvl:'warn',msg:'Last day is more than a year away. Check the year'});
@@ -7664,6 +7708,7 @@ function previewEmpCsv(){
     const hm=_csvMapHeader(header,EMP_CSV_SPEC);
     if(hm.errors.length)return _csvFatal('csvPreview','csvMsg',hm.errors.join(' '));
     fileIssues.push(...hm.warnings);
+    fileIssues.push(_csvDetectDateOrder(data,hm.map,['anchor']));
     const todayDs=iso(getToday());
     const units=[...new Set(employees.map(e=>e.unit).filter(Boolean))];
     const get=(cells,k)=>hm.map[k]===undefined?'':_csvClean(cells[hm.map[k]]);

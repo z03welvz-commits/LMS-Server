@@ -1264,16 +1264,18 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
       <div class="card">
         <div class="card-head">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <h2>Active employees (<span id="empCount">0</span>)</h2>
-            <span id="resignedBadge" style="font-size:9px;background:#FCEBEB;color:#791F1F;padding:2px 8px;border-radius:10px;border:0.5px solid #F5C0C0;cursor:pointer" onclick="document.getElementById('showResignedToggle').click()" title="Click to show resigned">
+            <h2><span id="empListTitle">Active employees</span> (<span id="empCount">0</span>)</h2>
+            <span id="resignedBadge" style="font-size:9px;background:#FCEBEB;color:#791F1F;padding:2px 8px;border-radius:10px;border:0.5px solid #F5C0C0;cursor:pointer" onclick="setEmpView('resigned')" title="Click to show resigned only">
               <span id="resignedCount">0</span> resigned
             </span>
           </div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <input type="text" class="fsel" id="empSearch" placeholder="Search..." oninput="renderEmpTable()" style="width:120px">
-            <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5F5E5A;cursor:pointer">
-              <input type="checkbox" id="showResignedToggle" onchange="renderEmpTable()" style="accent-color:#A32D2D"> Show resigned
-            </label>
+            <select class="fsel" id="empViewFilter" onchange="renderEmpTable()" style="width:auto" title="Which employees to list">
+              <option value="active">Active only</option>
+              <option value="resigned">Resigned only</option>
+              <option value="all">All employees</option>
+            </select>
             <button class="btn btn-ghost" id="empSelAllBtn" style="font-size:10px;padding:3px 9px" onclick="toggleSelectAllEmp()">Select all</button>
             <button class="btn write-btn" id="empDelSelBtn" style="font-size:10px;padding:3px 9px;background:#FCEBEB;color:#791F1F;border:0.5px solid #F5C0C0;display:none" onclick="deleteSelectedEmp()">Remove selected (<span id="empSelCount">0</span>)</button>
             <button class="btn btn-ghost" style="font-size:10px;padding:4px 10px" onclick="exportEmpCsv()">Export CSV</button>
@@ -7157,14 +7159,17 @@ function delEmp(id){
   employees=employees.filter(e=>e.id!==id);save();renderEmpTable();buildDropdowns();
 }
 let empSelection=new Set();
+function setEmpView(view){const el=document.getElementById('empViewFilter');if(el){el.value=view;renderEmpTable();}}
 function sortEmpTable(col){empSortDir=empSortCol===col&&empSortDir==='asc'?'desc':'asc';empSortCol=col;renderEmpTable();}
 function renderEmpTable(){
   const q=(v('empSearch')||'').toLowerCase();
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const showResigned=document.getElementById('showResignedToggle')&&document.getElementById('showResignedToggle').checked;
-  const empPool=showResigned?employees:activeEmployees();
+  const view=v('empViewFilter')||'active';
+  // Resigned only includes employees still working out their last day ("Resigning")
+  const empPool=view==='all'?employees:view==='resigned'?employees.filter(e=>e.active===false):activeEmployees();
   const resignedCount=employees.filter(e=>e.active===false).length;
-  document.getElementById('empCount').textContent=activeEmployees().length;
+  document.getElementById('empListTitle').textContent=view==='all'?'All employees':view==='resigned'?'Resigned employees':'Active employees';
+  document.getElementById('empCount').textContent=empPool.length;
   document.getElementById('resignedCount').textContent=resignedCount;
   const pool=empPool.filter(e=>!q||e.name.toLowerCase().includes(q)||e.id.toLowerCase().includes(q)||e.unit.toLowerCase().includes(q))
     .sort((a,b)=>{

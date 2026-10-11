@@ -1185,7 +1185,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
             <div style="background:#F1EFE8;border-radius:8px;padding:12px;margin-bottom:12px;font-size:10px;color:#5F5E5A;line-height:1.8">
               <strong style="color:#1B3A6B">CSV columns (row 1 = header, any order):</strong><br>
               <code style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7">Emp ID, Full Name, Last Working Day, Separation Type, Remarks</code><br>
-              Required: <code>Emp ID</code>, <code>Last Working Day</code> (<code>YYYY-MM-DD</code>) | Separation Type: <code>Resigned</code> <code>Terminated</code> <code>Retired</code> <code>AWOL</code> <code>End of Contract</code> <code>Other</code> (blank = Resigned). Everyday wording and small typos are understood too, e.g. <code>Resigned (Voluntary)</code>, <code>absent without leave</code>, <code>terminated for cause</code>, <code>end of project</code>; the preview shows how each was read | Full Name: optional, checked against the system to catch wrong IDs | Remarks: optional<br>
+              Required: <code>Emp ID</code>, <code>Last Working Day</code> (<code>YYYY-MM-DD</code>) | Separation Type: <code>Resigned</code> <code>Terminated</code> <code>Retired</code> <code>AWOL</code> <code>End of Contract</code> <code>Other</code> (blank = Resigned). Everyday wording and small typos are understood too, e.g. <code>Resigned (Voluntary)</code>, <code>absent without leave</code>, <code>terminated for cause</code>, <code>end of project</code>; the preview shows how each was read | Last Working Day: any date you choose is accepted, including past dates | Full Name: optional, for reference only; employees are always matched by <code>Emp ID</code> | Remarks: optional<br>
               Employees stay on schedules until their last working day passes. Records are kept and can be reinstated anytime. Click <strong>Preview</strong> to check every row before anything is saved.<br>
               <button class="btn btn-ghost" style="margin-top:8px;font-size:10px;padding:4px 10px" onclick="downloadResignTemplate()">Download template</button>
             </div>
@@ -7554,8 +7554,9 @@ function previewResignCsv(){
         else{
           const emp=f.emp;r.empId=emp.id;r.sysName=emp.name;r.key=emp.id;
           if(!f.exact)issues.push({lvl:'warn',msg:`ID "${idRaw}" matched ${emp.id} (case/spacing differs)`});
+          // Employees are always linked by Emp ID. The name in the file is for reference only and never blocks a row.
           if(r.raw.name&&_csvNorm(r.raw.name)!==_csvNorm(emp.name))
-            issues.push({lvl:'error',msg:`Name in file "${r.raw.name}" doesn't match ${emp.id} "${emp.name}". Check the Emp ID`});
+            issues.push({lvl:'warn',msg:`Name in file "${r.raw.name}" differs from the system name "${emp.name}". Matched by Emp ID ${emp.id}`});
           if(emp.active===false)
             issues.push({lvl:'skip',msg:emp.lastWorkingDay&&emp.lastWorkingDay>=todayDs
               ?`Resignation already pending (last day ${emp.lastWorkingDay}). Reinstate first to change it`
@@ -7569,10 +7570,10 @@ function previewResignCsv(){
         r.lastDay=dt.value;
         if(dt.warn)issues.push({lvl:'warn',msg:dt.warn});
         const emp=r.empId&&ge(r.empId);
-        if(emp&&emp.anchor&&r.lastDay<emp.anchor)issues.push({lvl:'error',msg:`Last day is before the employee's anchor/start date (${emp.anchor})`});
+        // Any date is accepted (past, today or future): the user picks it. Only unusual values are flagged as warnings.
+        if(emp&&emp.anchor&&r.lastDay<emp.anchor)issues.push({lvl:'warn',msg:`Last day is before the employee's anchor/start date (${emp.anchor}). Check the date`});
         const diff=_csvDaysBetween(todayDs,r.lastDay);
-        if(diff<0)issues.push({lvl:'warn',msg:`Last day already passed (${-diff} day(s) ago); employee is hidden immediately`});
-        else if(diff>365)issues.push({lvl:'warn',msg:'Last day is more than a year away. Check the year'});
+        if(diff>365)issues.push({lvl:'warn',msg:'Last day is more than a year away. Check the year'});
         if(emp&&!issues.some(i=>i.lvl==='error'||i.lvl==='skip')){
           const lv=leaves.filter(l=>l.empId===emp.id&&l.status!=='cancelled'&&l.end>r.lastDay).length;
           const ov=overrides.filter(o=>o.empId===emp.id&&o.status!=='cancelled'&&o.end>r.lastDay).length;
@@ -7622,7 +7623,7 @@ function _confirmResignCsvInner(){
     const emp=ge(r.empId);
     if(!emp||emp.active===false){changed.push(r.empId);return;} // changed since preview
     emp.active=false;
-    emp.resignedDate=iso(today);
+    emp.resignedDate=r.lastDay; // the date picked in the file, even if it is before today
     emp.lastWorkingDay=r.lastDay;
     emp.resignReason=r.reason;
     emp.resignRemarks=r.remarks||'';

@@ -7427,22 +7427,40 @@ function _csvRenderPreview(elId,state){
   const {rows,cols,fileIssues,okLabel}=state;
   const st={ok:0,warn:0,skip:0,error:0};rows.forEach(r=>st[r.status=_csvStatus(r)]++);
   const badge={ok:['b-approved',okLabel],warn:['b-pending',okLabel+' (check)'],skip:['',`skipped`],error:['b-cancelled','error']};
-  const shown=state.onlyIssues?rows.filter(r=>r.status!=='ok'):rows;
+  // Status filter (click a badge): 'apply' = rows that will be applied (ok + warn), or one exact status. Takes priority over the checkbox.
+  const sf=state.statusF||'';
+  const shown=sf?rows.filter(r=>sf==='apply'?(r.status==='ok'||r.status==='warn'):r.status===sf):state.onlyIssues?rows.filter(r=>r.status!=='ok'):rows;
+  const chip=(key,cls,extra,text)=>`<span class="badge ${cls}" role="button" tabindex="0" title="Click to show only these rows" style="cursor:pointer;${sf===key?'outline:2px solid #1B3A6B;outline-offset:1px;':''}${extra}" onclick="_csvSetStatusFilter('${elId}','${key}')">${text}</span>`;
+  // Errors grouped by reason, so it is clear what went wrong and how often
+  const errGroups={};
+  rows.filter(r=>r.status==='error').forEach(r=>r.issues.filter(i=>i.lvl==='error').forEach(i=>{
+    const k=i.msg.replace(/"[^"]*"/g,'"…"').replace(/\b[\w-]*\d[\w-]*\b/g,'#').slice(0,110);
+    errGroups[k]=(errGroups[k]||0)+1;
+  }));
+  const errSummary=Object.entries(errGroups).sort((a,b)=>b[1]-a[1]);
   const notes=fileIssues.length?`<div style="background:#FAEEDA;color:#633806;border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:10px">${fileIssues.map(esc).join('<br>')}</div>`:'';
   document.getElementById(elId).innerHTML=`${notes}
   <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:10px;color:#5F5E5A;margin-bottom:6px">
     <strong>${rows.length} rows:</strong>
-    <span class="badge b-approved">${st.ok+st.warn} ${esc(okLabel)}</span>
-    ${st.warn?`<span class="badge b-pending">${st.warn} with warnings</span>`:''}
-    ${st.skip?`<span class="badge" style="background:#F1EFE8;color:#5F5E5A">${st.skip} skipped</span>`:''}
-    ${st.error?`<span class="badge b-cancelled">${st.error} errors (not applied)</span>`:''}
+    ${chip('apply','b-approved','',`${st.ok+st.warn} ${esc(okLabel)}`)}
+    ${st.warn?chip('warn','b-pending','',`${st.warn} with warnings`):''}
+    ${st.skip?chip('skip','','background:#F1EFE8;color:#5F5E5A;',`${st.skip} skipped`):''}
+    ${st.error?chip('error','b-cancelled','',`${st.error} errors (not applied)`):''}
+    ${sf?`<a href="#" style="color:#1B3A6B;text-decoration:underline" onclick="_csvSetStatusFilter('${elId}','${sf}');return false">Show all rows</a>`:''}
     <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" ${state.onlyIssues?'checked':''} onchange="_csvState['${elId}'].onlyIssues=this.checked;_csvRenderPreview('${elId}',_csvState['${elId}'])"> Show only rows with issues</label>
     ${st.warn+st.skip+st.error?`<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="_csvDownloadReport('${elId}')">Download issue report</button>`:''}
   </div>
+  ${errSummary.length?`<div style="background:#FCEBEB;color:#791F1F;border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:10px;line-height:1.7"><strong>Why rows have errors (click "${st.error} errors" above to list them):</strong><br>${errSummary.map(([k,n])=>`${n} &times; ${esc(k)}`).join('<br>')}</div>`:''}
   <div style="max-height:320px;overflow-y:auto;border:0.5px solid #D3D1C7;border-radius:8px">
   <table class="tbl" style="font-size:10px"><thead><tr><th>Row</th>${cols.map(c=>`<th>${esc(c.label)}</th>`).join('')}<th>Result</th></tr></thead>
-  <tbody>${shown.length?shown.map(r=>{const[b,l]=badge[r.status];return`<tr><td>${r.line}</td>${cols.map(c=>`<td>${esc(c.get(r)||'')}</td>`).join('')}<td><span class="badge ${b}" ${b?'':'style="background:#F1EFE8;color:#5F5E5A"'}>${l}</span>${r.issues.map(i=>`<br><span style="font-size:9px;color:${i.lvl==='error'?'#A32D2D':i.lvl==='warn'?'#BA7517':'#888780'}">${esc(i.msg)}</span>`).join('')}</td></tr>`;}).join(''):`<tr><td colspan="${cols.length+2}" style="text-align:center;color:#888780">No rows with issues.</td></tr>`}</tbody></table></div>`;
+  <tbody>${shown.length?shown.map(r=>{const[b,l]=badge[r.status];return`<tr><td>${r.line}</td>${cols.map(c=>`<td>${esc(c.get(r)||'')}</td>`).join('')}<td><span class="badge ${b}" ${b?'':'style="background:#F1EFE8;color:#5F5E5A"'}>${l}</span>${r.issues.map(i=>`<br><span style="font-size:9px;color:${i.lvl==='error'?'#A32D2D':i.lvl==='warn'?'#BA7517':'#888780'}">${esc(i.msg)}</span>`).join('')}</td></tr>`;}).join(''):`<tr><td colspan="${cols.length+2}" style="text-align:center;color:#888780">${sf?'No rows match this filter.':'No rows with issues.'}</td></tr>`}</tbody></table></div>`;
   return st;
+}
+// Click a status badge to show only those rows; click it again (or "Show all rows") to clear.
+function _csvSetStatusFilter(elId,key){
+  const s=_csvState[elId];if(!s)return;
+  s.statusF=s.statusF===key?'':key;
+  _csvRenderPreview(elId,s);
 }
 
 function _csvDownloadReport(elId){

@@ -1291,6 +1291,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <h2 style="font-size:13px;font-weight:600;color:#1B3A6B">Edit employee</h2>
           <button onclick="closeEditModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#888780">x</button>
         </div>
+        <div id="meMultiNote" style="display:none;background:#FAEEDA;color:#633806;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:10px;line-height:1.6"></div>
         <div class="form-grid">
           <div class="ff"><label>Employee ID</label><input type="text" id="meId" readonly style="background:#F1EFE8"></div>
           <div class="ff"><label>Full name</label><input type="text" id="meName"></div>
@@ -7811,9 +7812,24 @@ function exportEmpCsv(){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=`Employees_${iso(today)}.csv`;a.click();
 }
 let editingEmpId=null;
+// Multi-select edit: when the employee being edited is one of the checked employees, changes to these shared fields
+// are applied to every other checked (active) employee too. ID, name, anchor date and contact no. always stay individual.
+const MULTI_EDIT_FIELDS=['unit','type','role','firstShift','baseRest'];
+const MULTI_EDIT_LABEL={unit:'Unit',type:'Shift pattern',role:'Role',firstShift:'First shift',baseRest:'Base rest day'};
+let _editOrig=null;
+function _multiEditTargets(empId){
+  if(!empSelection.has(empId))return[];
+  return[...empSelection].filter(id=>{if(id===empId)return false;const o=ge(id);return o&&o.active!==false;});
+}
 function openEditModal(empId){
   const emp=ge(empId);if(!emp)return;
   editingEmpId=empId;
+  _editOrig={unit:emp.unit,type:emp.type,role:emp.role||'regular',firstShift:emp.firstShift,baseRest:emp.baseRest};
+  const note=document.getElementById('meMultiNote'),others=_multiEditTargets(empId).length;
+  if(note){
+    note.style.display=others?'':'none';
+    note.textContent=others?`${others} other selected employee(s) will receive any change you make to ${Object.values(MULTI_EDIT_LABEL).join(', ')}. Name, anchor date and contact no. stay individual.`:'';
+  }
   document.getElementById('meId').value=emp.id;
   document.getElementById('meName').value=emp.name;
   document.getElementById('meUnit').value=emp.unit;
@@ -7840,12 +7856,27 @@ function saveEditModal(){
   const name=(v('meName')||'').trim(),unit=(v('meUnit')||'').trim(),anchor=v('meAnchor');
   if(!name||!unit||!anchor){const el=document.getElementById('meMsg');el.textContent='Name, unit and anchor are required.';el.style.color='#A32D2D';return;}
   const prevShift=getSched(emp,iso(today)).shift;
+  // Work out which shared fields were actually changed in this modal (compared with the values when it was opened)
+  const newVals={unit,type:v('meType'),role:v('meRole')||'regular',firstShift:v('meFirstShift'),baseRest:parseInt(v('meRest'))};
+  const changed=_editOrig?MULTI_EDIT_FIELDS.filter(f=>String(newVals[f])!==String(_editOrig[f])):[];
   emp.name=name;emp.unit=unit;emp.type=v('meType');emp.role=v('meRole')||'regular';emp.firstShift=v('meFirstShift');emp.anchor=normalizeDate(anchor);emp.baseRest=parseInt(v('meRest'));emp.cp=(v('meCp')||'').trim();
   const newShift=getSched(emp,iso(today)).shift;
   actlog.push({id:aNid++,empId:editingEmpId,name:emp.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow()});
+  // Apply the same changes to the other selected employees
+  let alsoCount=0;
+  if(changed.length){
+    const DAYS_E=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const desc=changed.map(f=>`${MULTI_EDIT_LABEL[f]}: ${f==='baseRest'?DAYS_E[newVals[f]]:newVals[f]}`).join(', ');
+    _multiEditTargets(editingEmpId).forEach(id=>{
+      const o=ge(id);if(!o)return;
+      changed.forEach(f=>{o[f]=newVals[f];});
+      actlog.push({id:aNid++,empId:o.id,name:o.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),note:`Multi-select edit with ${emp.id} — ${desc}`});
+      alsoCount++;
+    });
+  }
   save();renderEmpTable();buildDropdowns();
   const el=document.getElementById('meMsg');el.style.color='#0F6E56';
-  el.textContent=`Saved.${prevShift!==newShift?' Shift corrected: '+prevShift+' -> '+newShift:''}`;
+  el.textContent=`Saved.${prevShift!==newShift?' Shift corrected: '+prevShift+' -> '+newShift+'.':''}${alsoCount?` Also applied to ${alsoCount} other selected employee(s).`:''}`;
   setTimeout(closeEditModal,1600);
 }
 let bulkPool=[];

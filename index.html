@@ -1168,6 +1168,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
               <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csvDupeMode" id="csvSkipDupe" value="skip" checked onchange="clearEmpCsv()" style="accent-color:#1B3A6B"> Skip the row</label>
               <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csvDupeMode" id="csvOverwrite" value="overwrite" onchange="clearEmpCsv()" style="accent-color:#1B3A6B"> Overwrite the employee</label>
             </div>
+            <label style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px;font-size:10px;color:#5F5E5A;line-height:1.5"><input type="checkbox" id="csvKeepHistory" checked onchange="clearEmpCsv()" style="accent-color:#1B3A6B;margin-top:2px"><span><strong>Keep earlier dates as they were</strong> (Overwrite only). If First Shift, Anchor Date, Base Rest Day or Type change, the employee's current schedule stays for every date before the file's <code>Anchor Date</code>, and the new schedule starts on that date. Untick to replace the schedule outright, which also recalculates past dates.</span></label>
             <div class="form-actions">
               <button class="btn btn-ghost" onclick="previewEmpCsv(this)">Preview</button>
               <button class="btn btn-primary write-btn" id="empCsvConfirmBtn" style="display:none" onclick="importCsv(this)">Import (<span id="empCsvCount">0</span>)</button>
@@ -1291,6 +1292,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <h2 style="font-size:13px;font-weight:600;color:#1B3A6B">Edit employee</h2>
           <button onclick="closeEditModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#888780">x</button>
         </div>
+        <div id="meHistory" style="display:none;background:#F1EFE8;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:10px;color:#5F5E5A;line-height:1.7"></div>
         <div id="meMultiNote" style="display:none;background:#FAEEDA;color:#633806;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:10px;line-height:1.6"></div>
         <div class="form-grid">
           <div class="ff"><label>Employee ID</label><input type="text" id="meId" readonly style="background:#F1EFE8"></div>
@@ -1304,7 +1306,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <div class="ff"><label>Contact no. (CP)</label><input type="text" id="meCp" placeholder="e.g. 09171234567"></div>
         </div>
         <div style="background:#E6F1FB;border-radius:8px;padding:10px 12px;margin-top:12px;font-size:10px;color:#185FA5;line-height:1.6">
-          <strong>Shift correction tip:</strong> If the calculated shift is wrong, toggle First shift (Day/Night) to flip the whole cycle. If that's still off, move the Anchor date forward or backward by 6 days to shift the cycle phase.
+          <strong>Shift correction tip:</strong> If the calculated shift is wrong, toggle First shift (Day/Night) to flip the whole cycle. If that's still off, move the Anchor date forward or backward by 6 days to shift the cycle phase. Editing here corrects the schedule for all dates after the last saved change. To start a <em>new</em> schedule on a date and keep earlier dates as they are, use the Change rest day tab or the employee upload.
           <div id="mePreview" style="margin-top:6px;font-weight:500;color:#1B3A6B"></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
@@ -4234,9 +4236,41 @@ function getCalPool(){
 //    fireDate = holiday + 1 day.
 //    Going backward in time each holiday is undone if ds < fireDate.
 // 5. Overrides lock the shift for a date range but never affect the rest day.
-// 6. "changeRest" re-anchors the employee so the new rest + shift applies cleanly.
+// 6. "changeRest" saves the current pattern to the employee's history (rule 7), then re-anchors the employee
+//    so the new rest + shift applies cleanly from the effective date.
+// 7. Schedule history: emp.history = [{to,type,anchor,firstShift,baseRest}, ...] (oldest first). Each entry is the
+//    pattern that applied up to and including `to`. The employee's own fields (type, anchor, firstShift, baseRest)
+//    apply to every date after the last entry. Employees without history use their own fields for every date.
 
 function normalizeDate(s){if(!s)return'';const d=pd(String(s).trim());if(isNaN(d.getTime()))return String(s).trim();return iso(d);}
+
+// ── Schedule history helpers ────────────────────────────────────────────────
+// The pattern (type, anchor, firstShift, baseRest) that applies to the employee on date ds.
+function _patternFor(emp,ds){
+  const h=emp.history;
+  if(h&&h.length){for(const seg of h){if(ds<=seg.to)return seg;}}
+  return emp;
+}
+function _dayBefore(ds){return iso(new Date(pd(ds).getTime()-86400000));}
+function _dayAfter(ds){return iso(new Date(pd(ds).getTime()+86400000));}
+// Checks that a new pattern may start on startDs. Returns '' if fine, otherwise a message.
+function _canRecordPattern(emp,startDs){
+  if(!startDs||isNaN(pd(startDs).getTime()))return 'Start date is missing or not valid.';
+  const last=emp.history&&emp.history.length?emp.history[emp.history.length-1]:null;
+  if(last&&_dayBefore(startDs)<=last.to)
+    return `The current pattern has applied since ${_dayAfter(last.to)}. The new pattern must start after that date.`;
+  return '';
+}
+// Saves the employee's CURRENT pattern so it keeps applying to every date before startDs (the date the new
+// pattern starts). Call this BEFORE changing type / anchor / firstShift / baseRest. Returns '' or an error message.
+function _recordPatternChange(emp,startDs){
+  const err=_canRecordPattern(emp,startDs);if(err)return err;
+  if(!emp.history)emp.history=[];
+  emp.history.push({to:_dayBefore(startDs),type:emp.type,anchor:normalizeDate(emp.anchor),firstShift:emp.firstShift,baseRest:emp.baseRest});
+  return '';
+}
+// The earliest anchor date known for the employee (used for "starts before anchor" warnings).
+function _firstAnchor(emp){return emp.history&&emp.history.length?emp.history[0].anchor:emp.anchor;}
 
 // ── Next occurrence of weekday dow on or after date ds ──────────────────────
 function _nextOcc(dow,ds){return iso(new Date(pd(ds).getTime()+((dow-pd(ds).getDay()+7)%7)*86400000));}
@@ -4330,16 +4364,18 @@ function getSched(emp,ds){
   if(emp.anchor&&!/^\d{4}-\d{2}-\d{2}$/.test(emp.anchor))
     emp.anchor=normalizeDate(emp.anchor);
 
-  const cacheKey=`${emp.id}|${emp.anchor}|${emp.baseRest}|${emp.firstShift}|${emp.type}|${ds}|ovr${_overrideGen}`;
+  // The pattern in force on ds (an earlier pattern from emp.history, or the employee's current one)
+  const p=_patternFor(emp,ds);
+  const cacheKey=`${emp.id}|${p.anchor}|${p.baseRest}|${p.firstShift}|${p.type}|${ds}|ovr${_overrideGen}`;
   if(_schedCache.has(cacheKey))return _schedCache.get(cacheKey);
 
   const RD=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const anchor=emp.anchor;
+  const anchor=p.anchor;
 
   // ── Step 1: rest weekday active on ds ───────────────────────────────────
   const curRestDow = ds>=anchor
-    ? _restFwd(emp.baseRest,anchor,ds)
-    : _restBwd(emp.baseRest,anchor,ds);
+    ? _restFwd(p.baseRest,anchor,ds)
+    : _restBwd(p.baseRest,anchor,ds);
 
   // ── Step 2: is this a rest day? ─────────────────────────────────────────
   if(pd(ds).getDay()===curRestDow){
@@ -4355,7 +4391,7 @@ function getSched(emp,ds){
   }
 
   // ── Step 4: trainee always Day ──────────────────────────────────────────
-  if(emp.type==='trainee'){
+  if(p.type==='trainee'){
     const r={shift:'Day',isRest:false,restDay:RD[curRestDow]};
     _schedCache.set(cacheKey,r);return r;
   }
@@ -4364,12 +4400,12 @@ function getSched(emp,ds){
   // Always count from lo=min(anchor,ds) to hi=max(anchor,ds).
   // The rest at lo is needed for the crossing counter.
   const [lo,hi]=ds>anchor?[anchor,ds]:[ds,anchor];
-  const restAtLo = lo===anchor ? emp.baseRest : _restBwd(emp.baseRest,anchor,lo);
-  const restCrossed=_countCrossings(emp.baseRest,anchor,lo,hi,restAtLo);
+  const restAtLo = lo===anchor ? p.baseRest : _restBwd(p.baseRest,anchor,lo);
+  const restCrossed=_countCrossings(p.baseRest,anchor,lo,hi,restAtLo);
 
   const shift=restCrossed%2===0
-    ?emp.firstShift
-    :(emp.firstShift==='Day'?'Night':'Day');
+    ?p.firstShift
+    :(p.firstShift==='Day'?'Night':'Day');
 
   const r={shift,isRest:false,restDay:RD[curRestDow]};
   _schedCache.set(cacheKey,r);
@@ -4378,10 +4414,11 @@ function getSched(emp,ds){
 // Returns the effective rest weekday number (0-6) for an employee on a given date.
 // Used for sorting the Eff. rest column in the employees table.
 function effRest(emp,ds){
-  if(!emp.anchor||!ds)return emp.baseRest;
-  return ds>=emp.anchor
-    ?_restFwd(emp.baseRest,emp.anchor,ds)
-    :_restBwd(emp.baseRest,emp.anchor,ds);
+  const p=_patternFor(emp,ds);
+  if(!p.anchor||!ds)return p.baseRest;
+  return ds>=p.anchor
+    ?_restFwd(p.baseRest,p.anchor,ds)
+    :_restBwd(p.baseRest,p.anchor,ds);
 }
 // ABS_TYPES is now fully driven by the isAbsent flag on each leave type.
 // Toggle it per type in Manage Leave Types modal.
@@ -6127,7 +6164,7 @@ function _csvCheckRange(r,startRaw,endRaw,openEnded){
 }
 // Employee start date and resignation vs the record's dates.
 function _csvCheckEmpDates(r,emp){
-  if(emp.anchor&&r.start<emp.anchor)r.issues.push({lvl:'warn',msg:`Starts before the employee's anchor/start date (${emp.anchor})`});
+  if(_firstAnchor(emp)&&r.start<_firstAnchor(emp))r.issues.push({lvl:'warn',msg:`Starts before the employee's anchor/start date (${_firstAnchor(emp)})`});
   if(emp.active===false&&emp.lastWorkingDay){
     if(r.start>emp.lastWorkingDay)r.issues.push({lvl:'error',msg:`Employee is resigned; starts after their last working day (${emp.lastWorkingDay})`});
     else if(!r.end||r.end>emp.lastWorkingDay)r.issues.push({lvl:'warn',msg:`Employee is resigned; runs past their last working day (${emp.lastWorkingDay})`});
@@ -7112,9 +7149,10 @@ function changeRest(){
   const emp=ge(empId);if(!emp){showMsg('restMsg','Employee not found.',false);return;}
   if(!effective){showMsg('restMsg','Please enter the effective date.',false);return;}
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  // Re-anchor the employee at (effectiveDate - 1 day).
-  // This preserves all history before the effective date and applies the new
-  // rest day + shift cleanly from effectiveDate onward.
+  // Keep the pattern the employee has now for every date before the effective date (schedule history),
+  // then re-anchor at (effectiveDate - 1 day) so the new rest day + shift apply cleanly from effectiveDate onward.
+  const histErr=_recordPatternChange(emp,effective);
+  if(histErr){showMsg('restMsg',histErr,false);return;}
   const effD=pd(effective);
   const prevD=new Date(effD.getTime()-86400000);
   const prevAnchor=iso(prevD);
@@ -7124,9 +7162,9 @@ function changeRest(){
   actlog.push({id:aNid++,empId,name:emp.name,reqType:'Employee',
     action:'Rest Day Changed',
     dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
-    note:`New rest: ${DAYS[nr]}, effective: ${effective}, shift: ${shift}${reason?' ('+reason+')':''}`});
+    note:`New rest: ${DAYS[nr]}, effective: ${effective}, shift: ${shift}${reason?' ('+reason+')':''}. Dates before ${effective} keep the previous pattern`});
   save();
-  showMsg('restMsg',`${emp.name} rest day changed to ${DAYS[nr]} effective ${effective} (${shift} shift).`,true);
+  showMsg('restMsg',`${emp.name} rest day changed to ${DAYS[nr]} effective ${effective} (${shift} shift). Earlier dates are unchanged.`,true);
   renderEmpTable();
   document.getElementById('rPreview').style.display='none';
 }
@@ -7138,17 +7176,20 @@ function previewRestChange(){
   if(!empId||!effective){el.style.display='none';return;}
   const emp=ge(empId);if(!emp){el.style.display='none';return;}
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  // Simulate re-anchored employee and show next 14 days
+  const histErr=_canRecordPattern(emp,effective);
+  if(histErr){el.innerHTML=`<span style="color:#A32D2D">${esc(histErr)}</span>`;el.style.display='block';return;}
+  // Simulate re-anchored employee and show next 14 days; also the 5 days before, which stay as they are
   const effD=pd(effective);
   const prevD=new Date(effD.getTime()-86400000);
-  const simEmp={...emp,anchor:iso(prevD),firstShift:shift,baseRest:nr};
-  let preview=`<strong>Preview from ${effective}:</strong> rest day → <strong>${DAYS[nr]}</strong>, starting shift → <strong>${shift}</strong><br>`;
+  const simEmp={...emp,anchor:iso(prevD),firstShift:shift,baseRest:nr,history:[]};
+  const chip=(d,s)=>`<span style="display:inline-block;margin:1px 2px;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:500;background:${s.isRest?'#E1F5EE':s.shift==='Day'?'#E6F1FB':'#EEEDFE'};color:${s.isRest?'#085041':s.shift==='Day'?'#0C447C':'#3C3489'}">${DAYS[d.getDay()].substring(0,2)} ${d.getDate()} ${s.isRest?'REST':s.shift}</span>`;
+  let preview=`<strong>Before ${effective} (kept as it is now):</strong><br>`;
+  for(let i=5;i>=1;i--){const d=new Date(effD.getTime()-i*86400000);preview+=chip(d,getSched(emp,iso(d)));}
+  preview+=`<br><strong>From ${effective}:</strong> rest day → <strong>${DAYS[nr]}</strong>, starting shift → <strong>${shift}</strong><br>`;
   const row=[];
   for(let i=0;i<14;i++){
     const d=new Date(effD.getTime()+i*86400000);
-    const ds=iso(d);
-    const s=getSched(simEmp,ds);
-    row.push(`<span style="display:inline-block;margin:1px 2px;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:500;background:${s.isRest?'#E1F5EE':s.shift==='Day'?'#E6F1FB':'#EEEDFE'};color:${s.isRest?'#085041':s.shift==='Day'?'#0C447C':'#3C3489'}">${DAYS[d.getDay()].substring(0,2)} ${d.getDate()} ${s.isRest?'REST':s.shift}</span>`);
+    row.push(chip(d,getSched(simEmp,iso(d))));
   }
   preview+=row.join('');
   el.innerHTML=preview;
@@ -7590,7 +7631,7 @@ function previewResignCsv(){
         if(dt.warn)issues.push({lvl:'warn',msg:dt.warn});
         const emp=r.empId&&ge(r.empId);
         // Any date is accepted (past, today or future): the user picks it. Only unusual values are flagged as warnings.
-        if(emp&&emp.anchor&&r.lastDay<emp.anchor)issues.push({lvl:'warn',msg:`Last day is before the employee's anchor/start date (${emp.anchor}). Check the date`});
+        if(emp&&_firstAnchor(emp)&&r.lastDay<_firstAnchor(emp))issues.push({lvl:'warn',msg:`Last day is before the employee's anchor/start date (${_firstAnchor(emp)}). Check the date`});
         const diff=_csvDaysBetween(todayDs,r.lastDay);
         if(diff>365)issues.push({lvl:'warn',msg:'Last day is more than a year away. Check the year'});
         if(emp&&!issues.some(i=>i.lvl==='error'||i.lvl==='skip')){
@@ -7758,7 +7799,20 @@ function previewEmpCsv(){
         if(!diff.length)issues.push({lvl:'skip',msg:'No changes'});
         else{
           issues.push({lvl:'warn',msg:'Will update: '+diff.join(', ')});
-          if(diff.some(k=>['type','firstShift','anchor','baseRest'].includes(k)))issues.push({lvl:'warn',msg:'Schedule will change for this employee'});
+          if(diff.some(k=>['type','firstShift','anchor','baseRest'].includes(k))){
+            issues.push({lvl:'warn',msg:'Schedule will change for this employee'});
+            const keepEl=document.getElementById('csvKeepHistory');
+            if(keepEl&&keepEl.checked){
+              // Anchor Date in the file = the date the new schedule starts; earlier dates keep the current schedule
+              if(rec.anchor<=ex.anchor)
+                issues.push({lvl:'error',msg:`To keep earlier dates, Anchor Date must be the date the new schedule starts and later than the current anchor (${ex.anchor}). Change the Anchor Date, or untick "Keep earlier dates as they were"`});
+              else{
+                const hErr=_canRecordPattern(ex,rec.anchor);
+                if(hErr)issues.push({lvl:'error',msg:hErr+' Or untick "Keep earlier dates as they were"'});
+                else{r.keepHistory=true;issues.push({lvl:'info',msg:`Earlier dates stay as they are now (up to ${_dayBefore(rec.anchor)}). New schedule starts ${rec.anchor}`});}
+              }
+            }else issues.push({lvl:'warn',msg:'Earlier dates will be recalculated with the new schedule'});
+          }
         }
       }
       return r;
@@ -7794,8 +7848,10 @@ function _importCsvInner(){
       added++;
     }else{
       if(!cur){changed.push(rec.id);return;} // deleted since preview
+      // Keep earlier dates: save the current schedule before it is replaced (re-checked now in case it changed since preview)
+      if(r.keepHistory&&_recordPatternChange(cur,rec.anchor)){changed.push(rec.id);return;}
       Object.assign(cur,{name:rec.name,unit:rec.unit,type:rec.type,role:rec.role,firstShift:rec.firstShift,anchor:rec.anchor,baseRest:rec.baseRest});
-      actlog.push({id:aNid++,empId:rec.id,name:rec.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow(),note:'Overwritten by CSV import'});
+      actlog.push({id:aNid++,empId:rec.id,name:rec.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow(),note:'Overwritten by CSV import'+(r.keepHistory?`. Dates before ${rec.anchor} keep the previous schedule`:'')});
       updated++;
     }
   });
@@ -7825,6 +7881,7 @@ function openEditModal(empId){
   const emp=ge(empId);if(!emp)return;
   editingEmpId=empId;
   _editOrig={unit:emp.unit,type:emp.type,role:emp.role||'regular',firstShift:emp.firstShift,anchor:emp.anchor,baseRest:emp.baseRest};
+  _renderEditHistory(emp);
   const note=document.getElementById('meMultiNote'),others=_multiEditTargets(empId).length;
   if(note){
     note.style.display=others?'':'none';
@@ -7844,6 +7901,27 @@ function openEditModal(empId){
   updateModalPreview();
 }
 function closeEditModal(){document.getElementById('editModal').style.display='none';editingEmpId=null;}
+// Shows the saved earlier schedules (read-only) so it is clear which pattern applied to which dates.
+function _renderEditHistory(emp){
+  const el=document.getElementById('meHistory');if(!el)return;
+  const h=emp.history||[];
+  if(!h.length){el.style.display='none';el.innerHTML='';return;}
+  const DAYS_H=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const rows=h.map((s,i)=>{
+    const from=i===0?'the beginning':fmt(_dayAfter(h[i-1].to));
+    return `<div>${esc(from)} to <strong>${esc(fmt(s.to))}</strong>: rest ${DAYS_H[s.baseRest]}, first shift ${esc(s.firstShift)}, anchor ${esc(fmt(s.anchor))}, ${esc(s.type)}</div>`;
+  }).join('');
+  el.innerHTML=`<strong>Earlier schedules kept (dates before the current one)</strong>${rows}<div>From ${esc(fmt(_dayAfter(h[h.length-1].to)))} onward: the current schedule below.</div>
+    <button class="btn btn-ghost write-btn" style="font-size:9px;padding:2px 8px;margin-top:4px;color:#A32D2D;border-color:#F5C0C0" onclick="clearEmpHistory()">Clear history</button>`;
+  el.style.display='';
+}
+function clearEmpHistory(){
+  const emp=ge(editingEmpId);if(!emp||!emp.history||!emp.history.length)return;
+  if(!confirm(`Clear the saved earlier schedules for ${emp.name}? Dates before the current schedule will then be recalculated with the current schedule. This cannot be undone.`))return;
+  emp.history=[];
+  actlog.push({id:aNid++,empId:emp.id,name:emp.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),note:'Schedule history cleared'});
+  save();renderEmpTable();_renderEditHistory(emp);
+}
 function updateModalPreview(){
   const anchor=v('meAnchor');if(!anchor)return;
   const tempEmp={id:v('meId'),name:'',unit:'',type:v('meType'),firstShift:v('meFirstShift'),anchor,baseRest:parseInt(v('meRest')||0)};

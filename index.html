@@ -7813,9 +7813,9 @@ function exportEmpCsv(){
 }
 let editingEmpId=null;
 // Multi-select edit: when the employee being edited is one of the checked employees, changes to these shared fields
-// are applied to every other checked (active) employee too. ID, name, anchor date and contact no. always stay individual.
-const MULTI_EDIT_FIELDS=['unit','type','role','firstShift','baseRest'];
-const MULTI_EDIT_LABEL={unit:'Unit',type:'Shift pattern',role:'Role',firstShift:'First shift',baseRest:'Base rest day'};
+// are applied to every other checked (active) employee too. ID, name and contact no. always stay individual.
+const MULTI_EDIT_FIELDS=['unit','type','role','firstShift','anchor','baseRest'];
+const MULTI_EDIT_LABEL={unit:'Unit',type:'Shift pattern',role:'Role',firstShift:'First shift',anchor:'Anchor date',baseRest:'Base rest day'};
 let _editOrig=null;
 function _multiEditTargets(empId){
   if(!empSelection.has(empId))return[];
@@ -7824,11 +7824,11 @@ function _multiEditTargets(empId){
 function openEditModal(empId){
   const emp=ge(empId);if(!emp)return;
   editingEmpId=empId;
-  _editOrig={unit:emp.unit,type:emp.type,role:emp.role||'regular',firstShift:emp.firstShift,baseRest:emp.baseRest};
+  _editOrig={unit:emp.unit,type:emp.type,role:emp.role||'regular',firstShift:emp.firstShift,anchor:emp.anchor,baseRest:emp.baseRest};
   const note=document.getElementById('meMultiNote'),others=_multiEditTargets(empId).length;
   if(note){
     note.style.display=others?'':'none';
-    note.textContent=others?`${others} other selected employee(s) will receive any change you make to ${Object.values(MULTI_EDIT_LABEL).join(', ')}. Name, anchor date and contact no. stay individual.`:'';
+    note.textContent=others?`${others} other selected employee(s) will receive any change you make to ${Object.values(MULTI_EDIT_LABEL).join(', ')}. Name and contact no. stay individual.`:'';
   }
   document.getElementById('meId').value=emp.id;
   document.getElementById('meName').value=emp.name;
@@ -7857,7 +7857,7 @@ function saveEditModal(){
   if(!name||!unit||!anchor){const el=document.getElementById('meMsg');el.textContent='Name, unit and anchor are required.';el.style.color='#A32D2D';return;}
   const prevShift=getSched(emp,iso(today)).shift;
   // Work out which shared fields were actually changed in this modal (compared with the values when it was opened)
-  const newVals={unit,type:v('meType'),role:v('meRole')||'regular',firstShift:v('meFirstShift'),baseRest:parseInt(v('meRest'))};
+  const newVals={unit,type:v('meType'),role:v('meRole')||'regular',firstShift:v('meFirstShift'),anchor:normalizeDate(anchor),baseRest:parseInt(v('meRest'))};
   const changed=_editOrig?MULTI_EDIT_FIELDS.filter(f=>String(newVals[f])!==String(_editOrig[f])):[];
   emp.name=name;emp.unit=unit;emp.type=v('meType');emp.role=v('meRole')||'regular';emp.firstShift=v('meFirstShift');emp.anchor=normalizeDate(anchor);emp.baseRest=parseInt(v('meRest'));emp.cp=(v('meCp')||'').trim();
   const newShift=getSched(emp,iso(today)).shift;
@@ -7866,7 +7866,7 @@ function saveEditModal(){
   let alsoCount=0;
   if(changed.length){
     const DAYS_E=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    const desc=changed.map(f=>`${MULTI_EDIT_LABEL[f]}: ${f==='baseRest'?DAYS_E[newVals[f]]:newVals[f]}`).join(', ');
+    const desc=changed.map(f=>`${MULTI_EDIT_LABEL[f]}: ${f==='baseRest'?DAYS_E[newVals[f]]:f==='anchor'?fmt(newVals[f]):newVals[f]}`).join(', ');
     _multiEditTargets(editingEmpId).forEach(id=>{
       const o=ge(id);if(!o)return;
       changed.forEach(f=>{o[f]=newVals[f];});

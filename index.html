@@ -1209,10 +1209,10 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <div class="form-head">Change rest day</div>
           <div class="form-body">
             <div class="form-grid">
-              <div class="ff"><label>Employee ID</label><input type="text" id="rEmpId" placeholder="EMP-001" oninput="autoFill('rEmpId','rEmpName');previewRestChange()"></div>
+              <div class="ff"><label>Employee ID</label><input type="text" id="rEmpId" placeholder="EMP-001" oninput="autoFill('rEmpId','rEmpName');suggestRestShift();previewRestChange()"></div>
               <div class="ff"><label>Employee name</label><input type="text" id="rEmpName" readonly style="background:#F1EFE8"></div>
               <div class="ff"><label>New rest day</label><select id="rNewRest" onchange="previewRestChange()"><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select></div>
-              <div class="ff"><label>Effective date</label><input type="date" id="rEffective" oninput="previewRestChange()"><div style="font-size:9px;color:#888780;margin-top:2px">First day under new rest day</div></div>
+              <div class="ff"><label>Effective date</label><input type="date" id="rEffective" oninput="suggestRestShift();previewRestChange()"><div style="font-size:9px;color:#888780;margin-top:2px">First day under new rest day. Earlier dates stay as they are</div></div>
               <div class="ff"><label>Shift on effective date</label><select id="rShift" onchange="previewRestChange()"><option value="Day">Day</option><option value="Night">Night</option></select><div style="font-size:9px;color:#888780;margin-top:2px">Their shift starting that day</div></div>
               <div class="ff"><label>Reason</label><input type="text" id="rReason" placeholder="e.g. Post-Holy Week"></div>
             </div>
@@ -4271,6 +4271,16 @@ function _recordPatternChange(emp,startDs){
 }
 // The earliest anchor date known for the employee (used for "starts before anchor" warnings).
 function _firstAnchor(emp){return emp.history&&emp.history.length?emp.history[0].anchor:emp.anchor;}
+// The shift the employee's CURRENT schedule gives on ds (first working day on or after ds), ignoring shift overrides.
+// Using it as the First Shift of a new schedule that starts on ds keeps Day/Night continuous across the change.
+function _continuingShift(emp,ds){
+  const tmp={...emp,id:'__continuity__'};
+  for(let i=0;i<8;i++){
+    const s=getSched(tmp,iso(new Date(pd(ds).getTime()+i*86400000)));
+    if(!s.isRest)return s.shift;
+  }
+  return emp.firstShift;
+}
 
 // ── Next occurrence of weekday dow on or after date ds ──────────────────────
 function _nextOcc(dow,ds){return iso(new Date(pd(ds).getTime()+((dow-pd(ds).getDay()+7)%7)*86400000));}
@@ -7168,6 +7178,12 @@ function changeRest(){
   renderEmpTable();
   document.getElementById('rPreview').style.display='none';
 }
+// When the employee or effective date changes, pre-select the shift that continues their current Day/Night cycle.
+function suggestRestShift(){
+  const emp=ge((v('rEmpId')||'').trim()),eff=v('rEffective');
+  if(!emp||!eff||isNaN(pd(eff).getTime()))return;
+  document.getElementById('rShift').value=_continuingShift(emp,eff);
+}
 function previewRestChange(){
   const empId=(v('rEmpId')||'').trim(),nr=parseInt(v('rNewRest'));
   const effective=v('rEffective'),shift=v('rShift')||'Day';
@@ -7185,7 +7201,11 @@ function previewRestChange(){
   const chip=(d,s)=>`<span style="display:inline-block;margin:1px 2px;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:500;background:${s.isRest?'#E1F5EE':s.shift==='Day'?'#E6F1FB':'#EEEDFE'};color:${s.isRest?'#085041':s.shift==='Day'?'#0C447C':'#3C3489'}">${DAYS[d.getDay()].substring(0,2)} ${d.getDate()} ${s.isRest?'REST':s.shift}</span>`;
   let preview=`<strong>Before ${effective} (kept as it is now):</strong><br>`;
   for(let i=5;i>=1;i--){const d=new Date(effD.getTime()-i*86400000);preview+=chip(d,getSched(emp,iso(d)));}
+  const contShift=_continuingShift(emp,effective);
   preview+=`<br><strong>From ${effective}:</strong> rest day → <strong>${DAYS[nr]}</strong>, starting shift → <strong>${shift}</strong><br>`;
+  preview+=shift===contShift
+    ?`<span style="color:#0F6E56">Continues their current ${contShift} shift.</span><br>`
+    :`<span style="color:#BA7517">Their current schedule has ${contShift} on ${effective}. Choosing ${shift} makes the shift change on that date without a rest day before it.</span><br>`;
   const row=[];
   for(let i=0;i<14;i++){
     const d=new Date(effD.getTime()+i*86400000);
@@ -7809,7 +7829,11 @@ function previewEmpCsv(){
               else{
                 const hErr=_canRecordPattern(ex,rec.anchor);
                 if(hErr)issues.push({lvl:'error',msg:hErr+' Or untick "Keep earlier dates as they were"'});
-                else{r.keepHistory=true;issues.push({lvl:'info',msg:`Earlier dates stay as they are now (up to ${_dayBefore(rec.anchor)}). New schedule starts ${rec.anchor}`});}
+                else{
+                  r.keepHistory=true;issues.push({lvl:'info',msg:`Earlier dates stay as they are now (up to ${_dayBefore(rec.anchor)}). New schedule starts ${rec.anchor}`});
+                  const cs=_continuingShift(ex,rec.anchor);
+                  if(rec.type!=='trainee'&&rec.firstShift!==cs)issues.push({lvl:'warn',msg:`First Shift ${rec.firstShift} differs from the shift their current schedule gives on ${rec.anchor} (${cs}). The shift will change on that date without a rest day before it`});
+                }
               }
             }else issues.push({lvl:'warn',msg:'Earlier dates will be recalculated with the new schedule'});
           }

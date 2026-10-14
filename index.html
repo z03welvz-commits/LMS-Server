@@ -1160,8 +1160,9 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <div class="form-head">CSV bulk import</div>
           <div class="form-body">
             <div style="background:#F1EFE8;border-radius:8px;padding:12px;margin-bottom:12px;font-size:10px;color:#5F5E5A;line-height:1.8">
-              <strong style="color:#1B3A6B">Required CSV columns (row 1 = header, any order):</strong><br>
+              <strong style="color:#1B3A6B">CSV columns (row 1 = header, any order):</strong><br>
               <code style="font-size:10px;background:#fff;padding:2px 6px;border-radius:4px;border:0.5px solid #D3D1C7">Emp ID, Full Name, Unit Type, Type, First Shift, Anchor Date, Base Rest Day, Role</code><br>
+              <strong>Update existing employees</strong> (default): the <code>Emp ID</code> is the only key. It must already exist in the employee list, otherwise the row is rejected with an error. The name and unit always come from the employee list, so <code>Full Name</code> and <code>Unit Type</code> are optional and only used as a reference (a difference is shown as a note, nothing is changed). A blank <code>Role</code> keeps the current role. <strong>Add new employees</strong>: Full Name and Unit Type are required and rows whose Emp ID already exists are skipped.<br>
               Type: <code>rotating</code> or <code>trainee</code> | First Shift: <code>Day</code> or <code>Night</code> | Anchor Date: <code>YYYY-MM-DD</code> | Base Rest: <code>0</code>=Sun .. <code>6</code>=Sat (or <code>Sun</code>..<code>Sat</code>) | Role: <code>regular</code> <code>reliever</code> <code>trainee</code> (optional, defaults to regular)<br>
               Save from Excel as <strong>CSV UTF-8 (Comma delimited)</strong>. Max 5,000 rows / 2 MB. Click <strong>Preview</strong> to check every row before anything is saved.<br>
               <button class="btn btn-ghost" style="margin-top:8px;font-size:10px;padding:4px 10px" onclick="downloadCsvTemplate()">Download template</button>
@@ -1171,11 +1172,11 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
               <input type="file" id="csvFile" accept=".csv,text/csv" onchange="clearEmpCsv()" style="border:0.5px solid #B4B2A9;border-radius:6px;padding:5px 9px;font-size:11px;background:#fff;width:100%">
             </div>
             <div style="display:flex;gap:12px;margin-bottom:10px;font-size:10px;color:#5F5E5A">
-              <span style="align-self:center">If the Emp ID already exists:</span>
-              <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csvDupeMode" id="csvSkipDupe" value="skip" checked onchange="clearEmpCsv()" style="accent-color:#1B3A6B"> Skip the row</label>
-              <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csvDupeMode" id="csvOverwrite" value="overwrite" onchange="clearEmpCsv()" style="accent-color:#1B3A6B"> Overwrite the employee</label>
+              <span style="align-self:center">Import mode:</span>
+              <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csvDupeMode" id="csvOverwrite" value="overwrite" checked onchange="clearEmpCsv()" style="accent-color:#1B3A6B"> Update existing employees (by Emp ID)</label>
+              <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csvDupeMode" id="csvSkipDupe" value="skip" onchange="clearEmpCsv()" style="accent-color:#1B3A6B"> Add new employees</label>
             </div>
-            <label style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px;font-size:10px;color:#5F5E5A;line-height:1.5"><input type="checkbox" id="csvKeepHistory" checked onchange="clearEmpCsv()" style="accent-color:#1B3A6B;margin-top:2px"><span><strong>Keep earlier dates as they were</strong> (Overwrite only). If First Shift, Anchor Date, Base Rest Day or Type change, the employee's current schedule stays for every date before the file's <code>Anchor Date</code>, and the new schedule starts on that date. Untick to replace the schedule outright, which also recalculates past dates.</span></label>
+            <label style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px;font-size:10px;color:#5F5E5A;line-height:1.5"><input type="checkbox" id="csvKeepHistory" checked onchange="clearEmpCsv()" style="accent-color:#1B3A6B;margin-top:2px"><span><strong>Keep earlier dates as they were</strong> (Update mode only). If First Shift, Anchor Date, Base Rest Day or Type change, the employee's current schedule stays for every date before the file's <code>Anchor Date</code>, and the new schedule starts on that date. Untick to replace the schedule outright, which also recalculates past dates.</span></label>
             <div class="form-actions">
               <button class="btn btn-ghost" onclick="previewEmpCsv(this)">Preview</button>
               <button class="btn btn-primary write-btn" id="empCsvConfirmBtn" style="display:none" onclick="importCsv(this)">Import (<span id="empCsvCount">0</span>)</button>
@@ -7900,14 +7901,16 @@ function previewEmpCsv(){
   clearEmpCsv();
   const overwrite=document.getElementById('csvOverwrite').checked;
   _csvReadFile('csvFile','csvMsg','csvPreview',({header,data,fileIssues})=>{
-    const hm=_csvMapHeader(header,EMP_CSV_SPEC);
+    // Update mode: the Emp ID is the only key; name and unit follow the employee list, so those two columns are optional
+    const spec=EMP_CSV_SPEC.map(s=>({...s,required:s.required&&!(overwrite&&(s.key==='name'||s.key==='unit'))}));
+    const hm=_csvMapHeader(header,spec);
     if(hm.errors.length)return _csvFatal('csvPreview','csvMsg',hm.errors.join(' '));
     fileIssues.push(...hm.warnings);
     const todayDs=iso(getToday());
     const units=[...new Set(employees.map(e=>e.unit).filter(Boolean))];
     const get=(cells,k)=>hm.map[k]===undefined?'':_csvClean(cells[hm.map[k]]);
     const rows=data.map(({line,cells})=>{
-      const issues=[],r={line,issues,raw:{},rec:{},mode:'add'};
+      const issues=[],r={line,issues,raw:{},rec:{},mode:overwrite?'update':'add'};
       EMP_CSV_SPEC.forEach(s=>r.raw[s.key]=get(cells,s.key));
       const rec=r.rec;
       if(cells.length>header.length&&cells.slice(header.length).some(c=>_csvClean(c)))
@@ -7923,10 +7926,19 @@ function previewEmpCsv(){
         if(f.ambiguous)issues.push({lvl:'error',msg:`Emp ID is similar to several existing IDs: ${f.ambiguous.join(', ')}`});
         else if(f.emp&&!f.exact)issues.push({lvl:'error',msg:`A similar ID already exists: ${f.emp.id} (case/spacing differs). Use the exact ID`});
         else if(f.emp){
-          if(!overwrite)issues.push({lvl:'skip',msg:'Emp ID already exists (choose "Overwrite" to update it)'});
-          else{r.mode='overwrite';r.existing=f.emp;if(f.emp.active===false)issues.push({lvl:'warn',msg:'Employee is resigned; overwrite will not reinstate them'});}
+          if(!overwrite)issues.push({lvl:'skip',msg:'Emp ID already exists (choose "Update existing employees" to change it)'});
+          else{r.existing=f.emp;if(f.emp.active===false)issues.push({lvl:'warn',msg:'Employee is resigned; update will not reinstate them'});}
         }
+        else if(overwrite)issues.push({lvl:'error',msg:'Emp ID not found in the employee list. Check the ID, or use "Add new employees" to create it'});
       }
+      if(overwrite){
+        // Update mode: name and unit follow the employee list (matched by Emp ID). The file's values are reference only.
+        if(r.existing){
+          rec.name=r.existing.name;rec.unit=r.existing.unit;
+          if(r.raw.name&&_csvNorm(r.raw.name)!==_csvNorm(rec.name))issues.push({lvl:'info',msg:`Name in file "${r.raw.name}" differs; system name "${rec.name}" kept (matched by Emp ID)`});
+          if(r.raw.unit&&_csvNorm(r.raw.unit)!==_csvNorm(rec.unit))issues.push({lvl:'info',msg:`Unit in file "${r.raw.unit}" differs; system unit "${rec.unit}" kept`});
+        }
+      }else{
       // Name
       let name=_csvSafeText(r.raw.name,'Full Name',issues);
       if(!name)issues.push({lvl:'error',msg:'Full Name is missing'});
@@ -7941,6 +7953,7 @@ function previewEmpCsv(){
         rec.unit=known||unit;
         if(known&&known!==unit)issues.push({lvl:'warn',msg:`Unit "${unit}" matched existing "${known}"`});
         else if(!known&&units.length)issues.push({lvl:'warn',msg:`New unit "${unit}". Check spelling`});
+      }
       }
       // Type
       const type=r.raw.type.toLowerCase();
@@ -7966,13 +7979,13 @@ function previewEmpCsv(){
       else rec.baseRest=rest;
       // Role
       const role=r.raw.role.toLowerCase();
-      if(!role)rec.role='regular';
+      if(!role)rec.role=overwrite&&r.existing?(r.existing.role||'regular'):'regular'; // update mode: blank keeps the current role
       else if(!['regular','reliever','trainee'].includes(role))issues.push({lvl:'error',msg:`Role "${r.raw.role}" must be regular, reliever or trainee`});
       else rec.role=role;
       if(rec.role==='trainee'&&rec.type==='rotating')issues.push({lvl:'warn',msg:'Role is trainee but Type is rotating'});
       // Overwrite: show what changes, flag schedule changes
-      if(r.mode==='overwrite'&&!issues.some(i=>i.lvl==='error')){
-        const ex=r.existing,fields=['name','unit','type','role','firstShift','anchor','baseRest'];
+      if(r.mode==='update'&&r.existing&&!issues.some(i=>i.lvl==='error')){
+        const ex=r.existing,fields=['type','role','firstShift','anchor','baseRest']; // name and unit follow the employee list
         const diff=fields.filter(k=>String(k==='role'?(ex.role||'regular'):ex[k])!==String(rec[k]));
         if(!diff.length)issues.push({lvl:'skip',msg:'No changes'});
         else{
@@ -7999,8 +8012,9 @@ function previewEmpCsv(){
       }
       return r;
     });
-    _csvMarkDuplicates(rows,r=>JSON.stringify(r.raw));
-    const st=_csvRenderPreview('csvPreview',{rows,fileIssues,okLabel:overwrite?'will add/update':'will add',onlyIssues:false,cols:[
+    // Update mode ignores name/unit, so rows that differ only there are still the same row
+    _csvMarkDuplicates(rows,r=>overwrite?[r.raw.type,r.raw.firstShift,r.raw.anchor,r.raw.rest,r.raw.role].join('|'):JSON.stringify(r.raw));
+    const st=_csvRenderPreview('csvPreview',{rows,fileIssues,okLabel:overwrite?'will update':'will add',onlyIssues:false,cols:[
       {label:'Emp ID',get:r=>r.raw.id},{label:'Name',get:r=>r.rec.name||r.raw.name},{label:'Unit',get:r=>r.rec.unit||r.raw.unit},
       {label:'Type',get:r=>r.rec.type||r.raw.type},{label:'First shift',get:r=>r.rec.firstShift||r.raw.firstShift},
       {label:'Anchor',get:r=>r.rec.anchor||r.raw.anchor},{label:'Rest',get:r=>r.rec.baseRest!==undefined?['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][r.rec.baseRest]:r.raw.rest},
@@ -8032,8 +8046,9 @@ function _importCsvInner(){
       if(!cur){changed.push(rec.id);return;} // deleted since preview
       // Keep earlier dates: save the current schedule before it is replaced (re-checked now in case it changed since preview)
       if(r.keepHistory&&_recordPatternChange(cur,rec.anchor)){changed.push(rec.id);return;}
-      Object.assign(cur,{name:rec.name,unit:rec.unit,type:rec.type,role:rec.role,firstShift:rec.firstShift,anchor:rec.anchor,baseRest:rec.baseRest});
-      actlog.push({id:aNid++,empId:rec.id,name:rec.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow(),note:'Overwritten by CSV import'+(r.keepHistory?`. Dates before ${rec.anchor} keep the previous schedule`:'')});
+      // Name and unit are never taken from the file: the Emp ID is the key and they follow the employee list
+      Object.assign(cur,{type:rec.type,role:rec.role,firstShift:rec.firstShift,anchor:rec.anchor,baseRest:rec.baseRest});
+      actlog.push({id:aNid++,empId:rec.id,name:cur.name,reqType:'Employee',action:'Employee Updated',dateReq:iso(today),admin:currentUser||'System',username:currentUser,displayName:currentUserDisplay+' (CSV)',actionDate:isoNow(),note:'Updated by CSV import (matched by Emp ID)'+(r.keepHistory?`. Dates before ${rec.anchor} keep the previous schedule`:'')});
       updated++;
     }
   });

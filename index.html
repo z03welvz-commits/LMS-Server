@@ -173,6 +173,12 @@ button.btn-busy,button[disabled].btn-busy{opacity:.75;cursor:wait}
 .unit-header td{background:#1B3A6B!important;color:#fff!important;font-weight:600!important;font-size:10px!important;filter:none!important;padding:5px 8px!important}
 .sc-d{background:#E1F5EE;color:#085041}.sc-n{background:#E6F1FB;color:#0C447C}
 .sc-r{background:#F1EFE8;color:#B4B2A9}.sc-l{background:#FAECE7;color:#712B13}.sc-o{background:#FAEEDA;color:#633806}
+.sched-table td.sc-edit{cursor:pointer;box-shadow:inset 0 0 0 1px #85B7EB}
+.sched-table td.sc-locked{opacity:.5;cursor:not-allowed}
+.sched-table td.sc-man{font-weight:700}
+#schedCellMenu{position:fixed;z-index:9999;background:#fff;border:0.5px solid #B4B2A9;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:8px;font-size:11px;min-width:190px;display:none}
+#schedCellMenu .scm-btn{display:inline-block;margin:2px 2px 0 0;padding:4px 9px;border-radius:5px;border:0.5px solid #B4B2A9;background:#fff;cursor:pointer;font-size:11px}
+#schedCellMenu .scm-btn:hover{background:#E6F1FB}
 .today-col{background:#FFF9C4!important}
 
 /* ═══ BADGES ═══ */
@@ -902,6 +908,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
         <button class="btn btn-ghost" onclick="schedNav(-1)">&#8592;</button>
         <span style="font-size:12px;font-weight:500;min-width:120px;text-align:center" id="schedLabel"></span>
         <button class="btn btn-ghost" onclick="schedNav(1)">&#8594;</button>
+        <button class="btn btn-ghost" id="schedEditBtn" style="display:none" onclick="toggleSchedEdit()" title="Admins only: change a day to Day, Night or Rest">✎ Edit mode</button>
         <button class="btn btn-success" onclick="exportSched()">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3"/><path d="M2 12v2h12v-2"/></svg>Export CSV
         </button>
@@ -910,7 +917,7 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
           <span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:10px;background:#E6F1FB;border-radius:2px;display:inline-block"></span>Night</span>
           <span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:10px;background:#F1EFE8;border-radius:2px;display:inline-block"></span>Rest</span>
           <span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:10px;background:#FAECE7;border-radius:2px;display:inline-block"></span>Leave</span>
-          <span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:10px;background:#FAEEDA;border-radius:2px;display:inline-block"></span>Override</span>
+          <span style="display:flex;align-items:center;gap:3px"><span style="width:14px;height:10px;background:#FAEEDA;border-radius:2px;display:inline-block"></span>Override / edited</span>
         </div>
       </div>
       <div id="schedContainer"></div>
@@ -4241,6 +4248,9 @@ function getCalPool(){
 // 7. Schedule history: emp.history = [{to,type,anchor,firstShift,baseRest}, ...] (oldest first). Each entry is the
 //    pattern that applied up to and including `to`. The employee's own fields (type, anchor, firstShift, baseRest)
 //    apply to every date after the last entry. Employees without history use their own fields for every date.
+// 8. Manual cell edits (Schedule page, admins only, from 1 month before today onward): overrides with manual:true and
+//    shift Day|Night|Rest. They beat the pattern, rest days and Special Schedule overrides, and never move the rotation.
+//    Overrides are indexed per employee (_ovrFor) so lookups stay fast however many exist.
 
 function normalizeDate(s){if(!s)return'';const d=pd(String(s).trim());if(isNaN(d.getTime()))return String(s).trim();return iso(d);}
 
@@ -4369,14 +4379,36 @@ function _countCrossings(baseRest,anchor,lo,hi,restAtLo){
 let _schedCache=new Map();
 function _clearSchedCache(){_schedCache=new Map();}
 
+// ── Overrides indexed by employee ────────────────────────────────────────────
+// getSched runs once per employee-day (about 21,000 times for one month of the schedule page), so the
+// override list is split per employee once instead of being scanned on every call.
+//   ranged = the Special Schedule overrides (Day/Night, never beat a rest day)
+//   manual = per-date edits made on the Schedule page (Day/Night/Rest, beat everything incl. rest day)
+// Rebuilt automatically whenever the overrides array, its length or _overrideGen changes.
+const _NO_OVR={ranged:[],manual:[]};
+let _ovrIdx=null,_ovrIdxSrc=null,_ovrIdxLen=-1,_ovrIdxGen=-1;
+function _ovrFor(empId){
+  if(!_ovrIdx||_ovrIdxSrc!==overrides||_ovrIdxLen!==overrides.length||_ovrIdxGen!==_overrideGen){
+    _ovrIdx=new Map();_ovrIdxSrc=overrides;_ovrIdxLen=overrides.length;_ovrIdxGen=_overrideGen;
+    overrides.forEach(o=>{
+      if(o.status==='cancelled')return;
+      let e=_ovrIdx.get(o.empId);
+      if(!e){e={ranged:[],manual:[]};_ovrIdx.set(o.empId,e);}
+      (o.manual?e.manual:e.ranged).push(o);
+    });
+  }
+  return _ovrIdx.get(empId)||_NO_OVR;
+}
+
 // ── Main schedule function ───────────────────────────────────────────────────
-function getSched(emp,ds){
+// noManual=true returns the schedule WITHOUT manual cell edits (what the pattern/overrides give by themselves).
+function getSched(emp,ds,noManual){
   if(emp.anchor&&!/^\d{4}-\d{2}-\d{2}$/.test(emp.anchor))
     emp.anchor=normalizeDate(emp.anchor);
 
   // The pattern in force on ds (an earlier pattern from emp.history, or the employee's current one)
   const p=_patternFor(emp,ds);
-  const cacheKey=`${emp.id}|${p.anchor}|${p.baseRest}|${p.firstShift}|${p.type}|${ds}|ovr${_overrideGen}`;
+  const cacheKey=`${emp.id}|${p.anchor}|${p.baseRest}|${p.firstShift}|${p.type}|${ds}|ovr${_overrideGen}${noManual?'|nm':''}`;
   if(_schedCache.has(cacheKey))return _schedCache.get(cacheKey);
 
   const RD=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -4387,6 +4419,17 @@ function getSched(emp,ds){
     ? _restFwd(p.baseRest,anchor,ds)
     : _restBwd(p.baseRest,anchor,ds);
 
+  const ovs=_ovrFor(emp.id);
+
+  // ── Step 1b: manual cell edit (Schedule page)? Beats the pattern, rest days and overrides ──
+  if(!noManual&&ovs.manual.length){
+    const m=ovs.manual.find(o=>ds>=o.start&&ds<=o.end);
+    if(m){
+      const r={shift:m.shift,isRest:m.shift==='Rest',isOvr:true,isManual:true,restDay:RD[curRestDow]};
+      _schedCache.set(cacheKey,r);return r;
+    }
+  }
+
   // ── Step 2: is this a rest day? ─────────────────────────────────────────
   if(pd(ds).getDay()===curRestDow){
     const r={shift:'Rest',isRest:true,restDay:RD[curRestDow]};
@@ -4394,7 +4437,7 @@ function getSched(emp,ds){
   }
 
   // ── Step 3: active shift override? ──────────────────────────────────────
-  const ov=overrides.find(o=>o.empId===emp.id&&ds>=o.start&&ds<=o.end&&o.status!=='cancelled');
+  const ov=ovs.ranged.find(o=>ds>=o.start&&ds<=o.end);
   if(ov){
     const r={shift:ov.shift,isRest:false,isOvr:true,restDay:RD[curRestDow]};
     _schedCache.set(cacheKey,r);return r;
@@ -5919,7 +5962,116 @@ function updateSchedMonthSel(){
   }
   sel.innerHTML=opts.join('');
 }
+// ── Manual schedule edits (Schedule page) ────────────────────────────────────
+// Admins only. A cell can be set to Day / Night / Rest, or back to Auto (what the pattern gives).
+// Editable from 1 month before today onward. Stored as manual overrides (see getSched step 1b); consecutive
+// dates with the same value are merged into one record so storage stays small.
+let schedEditMode=false,_schedEditNote='',_schedMenuCtx=null;
+function _manualEditMinDate(){
+  const t=getToday();
+  const d=new Date(t.getFullYear(),t.getMonth()-1,t.getDate());
+  if(d.getDate()!==t.getDate())d.setDate(0); // e.g. Mar 31 -> last day of Feb
+  return iso(d);
+}
+function _canEditSched(){return currentUserRole==='admin'&&!isReadOnly();}
+function toggleSchedEdit(){
+  if(currentUserRole!=='admin'){alert('Only admins can edit the work schedule.');return;}
+  if(!schedEditMode&&isReadOnly()){alert('Read-only: another user holds the edit lock.');return;}
+  schedEditMode=!schedEditMode;_schedEditNote='';closeSchedCellMenu();renderSched();
+}
+// Sets one date. val = 'Day' | 'Night' | 'Rest' | null (Auto). Returns true if anything changed.
+function _manualSetDate(emp,ds,val){
+  const auto=getSched(emp,ds,true);
+  const autoVal=auto.isRest?'Rest':auto.shift;
+  const want=(val===null||val===autoVal)?null:val; // same as the pattern -> no record needed
+  const cur=overrides.find(o=>o.manual&&o.empId===emp.id&&o.status!=='cancelled'&&ds>=o.start&&ds<=o.end);
+  if((cur?cur.shift:null)===want)return false;
+  if(cur){ // take ds out of the existing range (split in two if it is in the middle)
+    const before=cur.start<ds,after=cur.end>ds;
+    if(before&&after){overrides.push({...cur,id:oNid++,start:_dayAfter(ds)});cur.end=_dayBefore(ds);}
+    else if(before)cur.end=_dayBefore(ds);
+    else if(after)cur.start=_dayAfter(ds);
+    else overrides.splice(overrides.indexOf(cur),1);
+  }
+  if(want){
+    const prev=overrides.find(o=>o.manual&&o.empId===emp.id&&o.status!=='cancelled'&&o.shift===want&&o.end===_dayBefore(ds));
+    const next=overrides.find(o=>o.manual&&o.empId===emp.id&&o.status!=='cancelled'&&o.shift===want&&o.start===_dayAfter(ds));
+    if(prev&&next){prev.end=next.end;overrides.splice(overrides.indexOf(next),1);}
+    else if(prev)prev.end=ds;
+    else if(next)next.start=ds;
+    else{
+      const pr=getAdminProfile();
+      overrides.push({id:oNid++,empId:emp.id,shift:want,start:ds,end:ds,status:'approved',admin:pr.nickname||pr.fullname||currentUser||'Admin',reason:'Manual edit',manual:true});
+    }
+  }
+  return true;
+}
+// Applies val to every date from..to for one employee. Returns {ok,msg,changed}.
+function applyManualEdit(empId,from,to,val){
+  if(currentUserRole!=='admin')return{ok:false,msg:'Only admins can edit the work schedule.'};
+  if(isReadOnly())return{ok:false,msg:'Read-only: another user holds the edit lock.'};
+  const emp=ge(empId);
+  if(!emp)return{ok:false,msg:'Employee not found.'};
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to))return{ok:false,msg:'Invalid date.'};
+  if(to<from)return{ok:false,msg:'The "through" date must be on or after the start date.'};
+  const min=_manualEditMinDate();
+  if(from<min)return{ok:false,msg:`Dates before ${min} (1 month back) cannot be edited.`};
+  if(_csvDaysBetween(from,to)>366)return{ok:false,msg:'You can edit at most one year at a time.'};
+  if(val!==null&&!['Day','Night','Rest'].includes(val))return{ok:false,msg:'Invalid value.'};
+  let changed=0;
+  for(let ds=from;ds<=to;ds=_dayAfter(ds))if(_manualSetDate(emp,ds,val))changed++;
+  if(changed){
+    _bumpOverrideGen();
+    actlog.push({id:aNid++,empId:emp.id,name:emp.name,reqType:'Special Schedule',action:'Schedule Edited',dateReq:iso(getToday()),admin:currentUser||'Admin',username:currentUser,displayName:currentUserDisplay,actionDate:isoNow(),
+      note:`${from}${to!==from?' to '+to:''}: ${val===null?'back to Auto':'set to '+val} (${changed} day(s) changed)`});
+    save();
+  }
+  return{ok:true,changed,msg:changed?`${emp.id}: ${val===null?'back to Auto':'set to '+val} for ${changed} day(s).`:'No change (already that value).'};
+}
+function closeSchedCellMenu(){const m=document.getElementById('schedCellMenu');if(m)m.style.display='none';_schedMenuCtx=null;}
+function openSchedCellMenu(td){
+  const empId=td.dataset.e,ds=td.dataset.d,emp=ge(empId);
+  if(!emp)return;
+  let m=document.getElementById('schedCellMenu');
+  if(!m){m=document.createElement('div');m.id='schedCellMenu';document.body.appendChild(m);}
+  _schedMenuCtx={empId,ds};
+  const auto=getSched(emp,ds,true);
+  const cur=getSched(emp,ds);
+  const curTxt=cur.isRest?'Rest':cur.shift;
+  m.innerHTML=`<div style="font-weight:600;margin-bottom:2px">${esc(emp.name)}</div>`
+    +`<div style="color:#5F5E5A;margin-bottom:6px">${esc(emp.id)} · ${fmt(ds)} · now <b>${curTxt}</b>${cur.isManual?' (manual)':''}</div>`
+    +`<div>Set to:</div>`
+    +`<button class="scm-btn" onclick="applySchedMenu('Day')">Day</button><button class="scm-btn" onclick="applySchedMenu('Night')">Night</button><button class="scm-btn" onclick="applySchedMenu('Rest')">Rest</button>`
+    +`<button class="scm-btn" onclick="applySchedMenu(null)" title="Remove the manual edit: back to ${auto.isRest?'Rest':auto.shift}">Auto (${auto.isRest?'Rest':auto.shift})</button>`
+    +`<div style="margin-top:6px">Through <input type="date" id="scmTo" value="${ds}" min="${ds}" style="font-size:11px"> <span style="color:#888780">(optional)</span></div>`
+    +`<div style="margin-top:6px;text-align:right"><button class="scm-btn" onclick="closeSchedCellMenu()">Cancel</button></div>`;
+  m.style.display='block';
+  const r=td.getBoundingClientRect();
+  const w=m.offsetWidth,h=m.offsetHeight;
+  m.style.left=Math.max(4,Math.min(r.left,window.innerWidth-w-8))+'px';
+  m.style.top=Math.max(4,(r.bottom+h+8>window.innerHeight?r.top-h-4:r.bottom+4))+'px';
+}
+function applySchedMenu(val){
+  if(!_schedMenuCtx)return;
+  const {empId,ds}=_schedMenuCtx;
+  const to=(document.getElementById('scmTo')||{}).value||ds;
+  const res=applyManualEdit(empId,ds,to,val);
+  if(!res.ok){alert(res.msg);return;}
+  _schedEditNote=res.msg;closeSchedCellMenu();renderSched();
+  if(document.getElementById('ovrTable'))renderOvrTable();
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSchedCellMenu();});
+document.addEventListener('mousedown',e=>{const m=document.getElementById('schedCellMenu');if(m&&m.style.display==='block'&&!m.contains(e.target)&&!(e.target.closest&&e.target.closest('td.sc-edit')))closeSchedCellMenu();});
+
 function renderSched(){
+  if(schedEditMode&&!_canEditSched()){schedEditMode=false;closeSchedCellMenu();}
+  const editBtn=document.getElementById('schedEditBtn');
+  if(editBtn){
+    editBtn.style.display=currentUserRole==='admin'?'':'none';
+    editBtn.textContent=schedEditMode?'✓ Done editing':'✎ Edit mode';
+    editBtn.style.background=schedEditMode?'#FAEEDA':'';
+  }
+  const editMin=_manualEditMinDate();
   const unitF=v('schedUnit');
   const empIdF=(v('schedEmpId')||'').trim().toLowerCase();
   const empNameF=(v('schedEmpName')||'').trim().toLowerCase();
@@ -5966,9 +6118,12 @@ function renderSched(){
       const cells=dayScheds.map(({ds,s})=>{
         const onL=leavesOn(ds).some(l=>l.empId===emp.id&&getAbsTypes().includes(l.type));
         let cls,lbl;
-        if(onL&&!s.isRest){cls='sc-l';lbl='L';}else if(s.isOvr){cls='sc-o';lbl=s.shift==='Day'?'D':'N';}
+        if(onL&&!s.isRest){cls='sc-l';lbl='L';}else if(s.isOvr){cls='sc-o';lbl=s.isRest?'R':s.shift==='Day'?'D':'N';}
         else if(s.isRest){cls='sc-r';lbl='R';}else if(s.shift==='Day'){cls='sc-d';lbl='D';}else{cls='sc-n';lbl='N';}
-        return`<td class="${cls}${ds===ts?' today-col':''}" title="RD: ${s.restDay}">${lbl}</td>`;
+        if(s.isManual)cls+=' sc-man';
+        let ed='';
+        if(schedEditMode)ed=ds<editMin?' sc-locked':` sc-edit" data-e="${esc(emp.id)}" data-d="${ds}`;
+        return`<td class="${cls}${ds===ts?' today-col':''}${ed}" title="RD: ${s.restDay}${s.isManual?' · manual edit':''}">${lbl}</td>`;
       }).join('');
 
       html+=`<tr><td class="emp-col">${emp.id}</td><td class="name-col">${emp.name}</td>`
@@ -5976,7 +6131,9 @@ function renderSched(){
            +`${cells}</tr>`;
     });
   });
-  document.getElementById('schedContainer').innerHTML=`<div class="sched-wrap"><table class="sched-table"><thead><tr><th class="emp-col">Emp ID</th><th class="name-col">Name</th><th style="min-width:44px;text-align:center;font-size:9px">Rest Day</th>${hdr}</tr></thead><tbody>${html}</tbody></table></div>`;
+  const banner=schedEditMode?`<div style="background:#FAEEDA;color:#633806;border:0.5px solid #E6C27A;border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:11px">✎ <b>Edit mode</b> — click a day to set it to Day, Night or Rest (or back to Auto). Editable from ${fmt(editMin)} onward; earlier days are locked.${_schedEditNote?` <span style="color:#085041;font-weight:600">· ${esc(_schedEditNote)}</span>`:''}</div>`:'';
+  document.getElementById('schedContainer').innerHTML=`${banner}<div class="sched-wrap"><table class="sched-table"><thead><tr><th class="emp-col">Emp ID</th><th class="name-col">Name</th><th style="min-width:44px;text-align:center;font-size:9px">Rest Day</th>${hdr}</tr></thead><tbody>${html}</tbody></table></div>`;
+  document.getElementById('schedContainer').onclick=schedEditMode?(e=>{const td=e.target.closest&&e.target.closest('td.sc-edit');if(td)openSchedCellMenu(td);}):null;
 }
 function exportSched(){
   if(typeof XLSX==='undefined'){alert('Excel library not loaded. Check internet connection.');return;}
@@ -6071,7 +6228,7 @@ function exportSched(){
         const onL=leavesOn(ds).some(l=>l.empId===emp.id&&getAbsTypes().includes(l.type));
         let lbl,fillArgb,fgArgb;
         if(onL&&!s.isRest){lbl='L';fillArgb=COL.leaveBg;fgArgb=COL.leaveFg;}
-        else if(s.isOvr){lbl=s.shift==='Day'?'D*':'N*';fillArgb=COL.ovrBg;fgArgb=COL.ovrFg;}
+        else if(s.isOvr){lbl=s.isRest?'R*':s.shift==='Day'?'D*':'N*';fillArgb=COL.ovrBg;fgArgb=COL.ovrFg;}
         else if(s.isRest){lbl='R';fillArgb=COL.restBg;fgArgb=COL.restFg;}
         else if(s.shift==='Day'){lbl='D';fillArgb=COL.dayBg;fgArgb=COL.dayFg;}
         else{lbl='N';fillArgb=COL.nightBg;fgArgb=COL.nightFg;}
@@ -6381,7 +6538,8 @@ const OVR_CSV_SPEC=[
 const OVR_SHIFT_ALIASES={day:'Day',dayshift:'Day',d:'Day',ds:'Day',night:'Night',nightshift:'Night',n:'Night',ns:'Night'};
 let _ovrCsvRows=[];
 function _ovrConflict(empId,start,end){
-  return overrides.find(o=>o.empId===empId&&o.status!=='cancelled'&&_csvRangesOverlap(o.start,o.end,start,end));
+  // Manual cell edits (Schedule page) are not conflicts: they simply take precedence over a Special Schedule.
+  return overrides.find(o=>!o.manual&&o.empId===empId&&o.status!=='cancelled'&&_csvRangesOverlap(o.start,o.end,start,end));
 }
 function clearOvrCsv(){
   _ovrCsvRows=[];
@@ -6793,7 +6951,7 @@ function renderOvrTable(){
   </tr></thead><tbody>${rows.map(o=>{const e=ge(o.empId)||{};return`<tr>
     <td style="text-align:center"><input type="checkbox" class="ovr-chk" data-id="${o.id}" ${ovrSelection.has(o.id)?'checked':''} onchange="toggleOvrChk(${o.id},this.checked)"></td>
     <td>${esc(o.empId)}</td><td>${esc(e.name||o.empId)}</td>
-    <td><span class="${o.shift==='Day'?'sd-lbl':'sn-lbl'}">${o.shift}</span></td>
+    <td>${o.shift==='Rest'?'<span class="sb sb-r">Rest</span>':`<span class="${o.shift==='Day'?'sd-lbl':'sn-lbl'}">${o.shift}</span>`}${o.manual?' <span class="sb" style="background:#FAEEDA;color:#633806" title="Edited on the Schedule page">Manual</span>':''}</td>
     <td>${fmt(o.start)}</td><td>${fmt(o.end)}</td>
     <td><span class="badge b-${o.status||'approved'}">${o.status||''}</span></td>
     <td>${esc(o.admin||'-')}</td><td style="color:#5F5E5A">${esc(o.reason||'-')}</td>

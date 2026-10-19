@@ -1,0 +1,7 @@
+{
+  "name": "lms-tailwind-build",
+  "private": true,
+  "description": "Rebuilds the prefixed Tailwind CSS that is inlined into ../../index.html (homepage styling).",
+  "scripts": { "build": "node build.js" },
+  "devDependencies": { "tailwindcss": "3.4.17" }
+}

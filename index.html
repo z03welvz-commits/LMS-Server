@@ -47,6 +47,13 @@ button.btn-busy,button[disabled].btn-busy{opacity:.75;cursor:wait}
 .login-btn:hover{background:#0F2A50}
 .login-err{font-size:10px;color:#A32D2D;background:#FCEBEB;border-radius:5px;padding:6px 10px;margin-top:8px;display:none}
 .login-hint{font-size:9px;color:#888780;margin-top:10px;text-align:center}
+.login-or{display:flex;align-items:center;gap:10px;margin:16px 0 10px;font-size:9px;color:#888780;text-transform:uppercase;letter-spacing:.08em}
+.login-or::before,.login-or::after{content:'';flex:1;height:1px;background:#E4E8F0}
+.login-guest{width:100%;background:#fff;color:#1B3A6B;border:1px solid #B8CCE8;border-radius:8px;padding:9px;font-size:12px;font-weight:500;cursor:pointer}
+.login-guest:hover{background:#F0F4FB}
+#guestBar{display:none;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;background:#FAEEDA;color:#633806;border-bottom:1px solid #EDBE8A;padding:6px 14px;font-size:11px}
+#guestBar button{background:#fff;color:#633806;border:1px solid #EDBE8A;border-radius:6px;padding:2px 10px;font-size:10px;font-weight:600;cursor:pointer}
+#guestBar button:hover{background:#FDF6E8}
 
 /* ═══ APP SHELL ═══ */
 #appShell{display:none;flex-direction:row;min-height:100vh}
@@ -499,6 +506,9 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
     <div class="login-field"><label>Password</label><input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="login-btn" id="loginSubmitBtn" onclick="doLogin(this)" disabled style="opacity:0.45;cursor:not-allowed">Sign in</button>
     <div class="login-err" id="loginErr">Incorrect username or password.</div>
+    <div class="login-or">or</div>
+    <button type="button" class="login-guest" id="loginGuestBtn" onclick="startGuestMode()">Continue as guest</button>
+    <div class="login-hint">Look around with sample data. No Google account or login needed, nothing is saved, and your real data is never touched.</div>
     <div style="margin-top:10px;text-align:center">
       <button onclick="openForgotPassword()" style="background:none;border:none;font-size:9px;color:#888780;cursor:pointer;text-decoration:underline;padding:2px 4px">Forgot password?</button>
     </div>
@@ -627,6 +637,10 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 
 <!-- MAIN AREA -->
 <div class="main-area">
+  <div id="guestBar" role="status">
+    <span><b>Guest mode</b> &middot; sample data only. Changes stay in this tab and are never saved or synced.</span>
+    <button type="button" onclick="doLogout()">Exit guest mode</button>
+  </div>
   <div class="topbar">
     <span class="topbar-title" id="topbarTitle">Home</span>
     <div style="display:flex;align-items:center;gap:10px">
@@ -1727,6 +1741,7 @@ const SESSION_TIMEOUT_MS = 60 * 60 * 1000; // 60 min inactivity logout
 let _loginAttempts       = 0;
 let _loginLockedUntil    = 0;
 let _sessionTimer        = null;
+let _guestMode           = false; // true while running the sandboxed guest session (see GUEST MODE below)
 
 function _resetSessionTimer(){
   clearTimeout(_sessionTimer);
@@ -2089,7 +2104,9 @@ function _launchApp(){
   stopLockTimers(); // clear any stale timers from previous session or double-launch
   initLeaveTypeSystem();
   document.getElementById('navWelcome').textContent='Welcome, '+currentUserDisplay;
-  document.getElementById('topbarUser').textContent=currentUserRole==='admin'?'Admin: '+currentUserDisplay:'Staff: '+currentUserDisplay;
+  document.getElementById('topbarUser').textContent=_guestMode?'Guest \u00B7 sample data':(currentUserRole==='admin'?'Admin: '+currentUserDisplay:'Staff: '+currentUserDisplay);
+  const _gb=document.getElementById('guestBar');if(_gb)_gb.style.display=_guestMode?'flex':'none';
+  const _so=document.querySelector('.nav-logout button');if(_so&&_so.lastChild&&_guestMode)_so.lastChild.textContent='Exit guest mode';
   // Show/hide admin-only UI
   const usersTab=document.getElementById('usersTabBtn');
   if(usersTab) usersTab.style.display=currentUserRole==='admin'?'':'none';
@@ -2112,6 +2129,7 @@ function _launchApp(){
 }
 
 async function doLogout(){
+  if(_guestMode){location.reload();return;} // discards the sandbox; real data was never touched
   await releaseLock();
   stopLockTimers();
   _lockInfo=null;_isLockHolder=false;
@@ -2122,6 +2140,94 @@ async function doLogout(){
   document.getElementById('loginPage').style.display='flex';
   document.getElementById('loginUser').value='';
   document.getElementById('loginPass').value='';
+}
+
+// ═══ GUEST MODE ══════════════════════════════════════════════════════════════
+// "Continue as guest" lets anyone look around the app with built-in sample data.
+// Safety model — nothing in a guest session can read or change real data:
+//   1. window.localStorage is replaced by an in-memory store for the rest of the page's
+//      life, so every existing read/write (employees, leaves, limits, users, tokens…)
+//      lands in the sandbox, and the real browser data is neither visible nor modified.
+//   2. Google Drive is switched off (_gfetch / load / save / sign-in all refuse in guest mode).
+//   3. Exiting reloads the page, which discards the sandbox completely.
+function _makeMemoryStorage(){
+  const m=new Map();
+  return{
+    getItem:k=>m.has(String(k))?m.get(String(k)):null,
+    setItem:(k,v)=>{m.set(String(k),String(v));},
+    removeItem:k=>{m.delete(String(k));},
+    clear:()=>m.clear(),
+    key:i=>Array.from(m.keys())[i]??null,
+    get length(){return m.size;}
+  };
+}
+
+// Built-in default data (D_EMP / D_LV / D_OVR / D_ACT), slid in time so it surrounds today,
+// plus a few near-term records so the dashboards have something to show.
+function buildGuestData(){
+  const today0=iso(getToday());
+  const shift=(ds,n)=>{const d=pd(ds);d.setDate(d.getDate()+n);return iso(d);};
+  const dayDiff=(a,b)=>Math.round((pd(b)-pd(a))/864e5);
+  const clone=o=>JSON.parse(JSON.stringify(o));
+  const first=D_LV.reduce((mn,l)=>l.start<mn?l.start:mn,'9999-12-31');
+  const off=dayDiff(first,shift(today0,-120));
+  const mv=ds=>ds?shift(ds,off):ds;
+  const employees=clone(D_EMP);
+  const leaves=clone(D_LV).map(l=>({...l,start:mv(l.start),end:mv(l.end)}));
+  const overrides=clone(D_OVR).map(o=>({...o,start:mv(o.start),end:mv(o.end)}));
+  const actlog=clone(D_ACT).map(a=>({...a,dateReq:mv(a.dateReq),actionDate:mv(a.actionDate)}));
+  let nid=leaves.reduce((mx,l)=>Math.max(mx,l.id),0)+1;
+  const add=(empId,type,from,len,status)=>leaves.push({id:nid++,empId,type,start:shift(today0,from),end:shift(today0,from+len-1),
+    status,admin:status==='pending'?'':'Supervisor A',reason:'',remarks:'',contactNo:''});
+  add('EMP-001','VL',-1,5,'approved');   // Dozer
+  add('EMP-015','SL',0,3,'approved');    // Dozer
+  add('EMP-002','VL',2,4,'approved');    // Dozer — overlaps, pushes the unit to its limit
+  add('EMP-005','VL',-2,6,'approved');   // DT
+  add('EMP-006','SL',1,2,'approved');    // DT
+  add('EMP-009','EL',0,2,'approved');    // Excavator
+  add('EMP-003','VL',3,3,'approved');    // Grader
+  add('EMP-011','VL',5,4,'approved');    // Compactor
+  add('EMP-013','SL',6,2,'approved');    // Water Truck
+  add('EMP-020','VL',9,5,'approved');    // Service Truck
+  add('EMP-014','VL',14,4,'approved');   // Water Truck
+  add('EMP-007','OB',-1,3,'approved');   // present-type (Official Business)
+  add('EMP-018','RTC',0,3,'approved');   // present-type (Return to Compliance)
+  add('EMP-004','VL',7,3,'pending');
+  add('EMP-008','SL',4,1,'pending');
+  add('EMP-016','VL',12,5,'pending');
+  add('EMP-010','EL',2,2,'cancelled');
+  const limits={Dozer:{day:2,night:2},Grader:{day:2,night:2},DT:{day:3,night:3},Excavator:{day:2,night:2},
+    Compactor:{day:2,night:2},'Water Truck':{day:2,night:2},'Service Truck':{day:2,night:2}};
+  const users=[{username:'guest',hash:'',displayName:'Guest',role:'admin',mustChangePassword:false,lastLogin:null}];
+  return{employees,leaves,overrides,actlog,limits,users};
+}
+
+function startGuestMode(){
+  if(_guestMode)return;
+  const err=document.getElementById('loginErr');
+  const store=_makeMemoryStorage();
+  try{Object.defineProperty(window,'localStorage',{configurable:true,get:()=>store});}catch(e){}
+  if(window.localStorage!==store){
+    // Never run a guest session on top of the real storage
+    if(err){err.textContent='Guest mode is not supported in this browser.';err.style.display='block';}
+    return;
+  }
+  _guestMode=true;
+  // Cut every link to real data and Google Drive
+  _gdriveReady=false;_gdriveToken=null;_gdriveFileId=null;_gdriveFolderId=null;
+  _credentialsFromFile=false;_lmsUsersOverride=null;
+  invalidateLeaveTypesCache();
+  if(typeof _clearSchedCache==='function')_clearSchedCache();
+  const g=buildGuestData();
+  store.setItem('lms7_emp',JSON.stringify(g.employees));
+  store.setItem('lms7_lv',JSON.stringify(g.leaves));
+  store.setItem('lms7_ovr',JSON.stringify(g.overrides));
+  store.setItem('lms7_act',JSON.stringify(g.actlog));
+  store.setItem('lms7_limits',JSON.stringify(g.limits));
+  store.setItem('lms7_users',JSON.stringify(g.users));
+  currentUser='guest';currentUserDisplay='Guest';currentUserRole='admin';
+  _launchApp();
+  takeLock(); // no Drive in guest mode, so this is a local, instant edit lock
 }
 
 async function changeCredentials(btn){
@@ -2387,6 +2493,7 @@ function _setGdriveConnectLoading(on, statusText=''){
 }
 
 async function gdriveSignIn(){
+  if(_guestMode){alert('Google Drive is disabled in guest mode.');return;}
   if(typeof google === 'undefined' || !google.accounts){
     _gdriveSetMsg('Google API not loaded. Check your internet connection.', 'err');
     return;
@@ -2456,6 +2563,7 @@ async function _gdriveRefreshTokenSilently(){
 
 // ── Authorised fetch wrapper ─────────────────────────────────────────────────
 async function _gfetch(url, opts={}){
+  if(_guestMode) throw new Error('Google Drive is disabled in guest mode');
   if(!_gdriveToken) throw new Error('Not signed in to Google Drive');
   opts.headers = Object.assign({ Authorization:'Bearer '+_gdriveToken.access_token }, opts.headers||{});
   let r = await fetch(url, opts);
@@ -2504,6 +2612,7 @@ async function _gdriveResolveFolder(){
 
 // ── Find or create lms_data.json on Drive ────────────────────────────────────
 async function _gdriveInitFile(){
+  if(_guestMode) return;
   _setGdriveConnectLoading(true,'Connecting to Google Drive…');
   _gdriveSetMsg('Connecting to Google Drive…','');
   _credentialsFromFile = true; // token confirmed — allow login even before file loads
@@ -2603,7 +2712,7 @@ async function _gdriveCreateFile(){
 
 // ── Load data from Drive ──────────────────────────────────────────────────────
 async function _gdriveLoadFile(){
-  if(!_gdriveFileId) return;
+  if(_guestMode||!_gdriveFileId) return;
   try{
     const r = await _gfetch(`${GDRIVE_API}/files/${_gdriveFileId}?alt=media`);
     if(!r.ok) throw new Error('HTTP '+r.status);
@@ -2641,7 +2750,7 @@ async function _gdriveLoadFile(){
 
 // ── Save data to Drive ────────────────────────────────────────────────────────
 async function _gdriveSaveFile(){
-  if(!_gdriveReady || !_gdriveFileId) return;
+  if(_guestMode||!_gdriveReady || !_gdriveFileId) return;
   const payload = getAllData();
   // Millisecond-precision timestamp — every write is unique so viewers' savedAt compare always detects change
   payload.savedAt = new Date().toISOString() + '.' + Date.now();
@@ -8517,7 +8626,10 @@ function renderActivity(){
 function updateStorageIndicator(mode){
   const el=document.getElementById('storageIndicator');
   if(!el)return;
-  if(mode==='file'||_gdriveReady){
+  if(_guestMode){
+    el.style.background='#FAEEDA';el.style.color='#633806';
+    el.textContent='● Guest sandbox — nothing is saved';
+  }else if(mode==='file'||_gdriveReady){
     el.style.background='#E1F5EE';el.style.color='#085041';
     el.textContent='● Google Drive — Auto-save ON';
   }else{

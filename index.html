@@ -1684,6 +1684,26 @@ body.readonly-mode .write-btn{opacity:.38!important;pointer-events:none!importan
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script id="lms-chart-defaults">
+// Shared chart tooltip: one look and one behaviour for every chart in the app.
+//  - same dark card, sizes and rounded swatches everywhere
+//  - line charts show ONE tooltip for the hovered point in time, listing every series
+//  - swatches use the series colour (not a highlighted point colour)
+// Individual charts only add their own callbacks (title/label/afterBody), never restyle.
+(function(){
+  if(!window.Chart)return;
+  var C=window.Chart,tt=C.defaults.plugins.tooltip;
+  Object.assign(tt,{backgroundColor:'#0f172a',padding:10,cornerRadius:8,boxPadding:4,
+    titleFont:{size:11,weight:'600'},bodyFont:{size:11},footerFont:{size:10}});
+  tt.callbacks.labelColor=function(ctx){
+    var ds=ctx.dataset,el=ctx.element&&ctx.element.options,col;
+    if(ctx.chart.config.type==='line'&&typeof ds.borderColor==='string')col=ds.borderColor;
+    else col=(el&&typeof el.backgroundColor==='string'&&el.backgroundColor)||(typeof ds.borderColor==='string'&&ds.borderColor)||'#94a3b8';
+    return{borderColor:col,backgroundColor:col,borderWidth:0,borderRadius:2};
+  };
+  if(C.overrides&&C.overrides.line)C.overrides.line.interaction={mode:'index',intersect:false};
+})();
+</script>
 <script>
 // ─── ADMIN CONFIGURATION ──────────────────────────────────────────────────────
 // Set this to the name of your shared network folder before distributing the file.
@@ -5424,9 +5444,8 @@ function renderHomeCharts(){
     const tick={font:{size:10},color:'#64748b'};
     const grid={color:'rgba(15,23,42,.06)',lineWidth:1};
     const peak=Math.max(...cd.dayData,...cd.nightData,showLim?lim:0,1);
-    const tooltip={backgroundColor:'#0f172a',padding:10,cornerRadius:8,titleFont:{size:11},bodyFont:{size:11},footerFont:{size:10},
+    const tooltip={
       callbacks:{
-        labelColor:c=>({borderColor:c.dataset.borderColor,backgroundColor:c.dataset.borderColor,borderWidth:0,borderRadius:2}),
         title:items=>items.length?(n===1?'':homeDayLabel(cd.dateLabels[items[0].dataIndex],true)):'',
         afterBody:items=>{
           if(n===1||!items.length)return[];
@@ -5452,7 +5471,7 @@ function renderHomeCharts(){
       ];
       if(showLim)datasets.push({label:'Unit limit',data:cd.labels.map(()=>lim),borderColor:BAD,borderDash:[6,4],borderWidth:1.5,pointRadius:0,pointHoverRadius:0,fill:false,order:3});
       charts.homeLineChart=new Chart(cv,{type:'line',data:{labels:cd.labels,datasets},
-        options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        options:{responsive:true,maintainAspectRatio:false,
           plugins:{legend:{display:false},tooltip:{...tooltip,filter:it=>it.dataset.label!=='Unit limit'}},
           scales:{
             y:{beginAtZero:true,suggestedMax:Math.max(4,peak+1),ticks:{...tick,precision:0},grid,border:{display:false}},
@@ -5473,7 +5492,7 @@ function renderFullReports(){
       {label:'Day',data:units.map(u=>dayTotals[u]),backgroundColor:'rgba(29,158,117,.75)',borderRadius:3},
       {label:'Night',data:units.map(u=>nightTotals[u]),backgroundColor:'rgba(24,95,165,.75)',borderRadius:3},
     ]},
-    options:{responsive:true,plugins:{legend:{display:false}},scales:{
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false}},scales:{
       x:{stacked:true,ticks:{font:{size:9}}},
       y:{stacked:true,beginAtZero:true,ticks:{font:{size:9},stepSize:1}}
     }}});
